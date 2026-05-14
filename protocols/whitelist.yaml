@@ -1,0 +1,286 @@
+---
+protocols:
+
+  fever_infectious:
+    display_name: "Fever with infection signs"
+    keywords: ["fever", "حرارة", "febrile", "chills", "قشعريرة", "infection", "sepsis", "bacteremia"]
+    vital_flags:
+      temperature_gt: 38.0
+    auto_order:
+      - test: "CBC with differential"
+        reason: "Detect infection, assess severity, identify organism type"
+        cost_tier: low
+        timing: routine
+      - test: "CRP"
+        reason: "Inflammation marker"
+        cost_tier: low
+        timing: routine
+      - test: "Urinalysis"
+        reason: "Exclude urinary source"
+        cost_tier: low
+        timing: routine
+      - test: "Blood glucose"
+        reason: "Routine metabolic screen"
+        cost_tier: low
+        timing: routine
+    conditional:
+      - test: "Blood culture x2"
+        condition: "temperature > 38.5 OR heart_rate > 100"
+        reason: "Suspect bacteraemia"
+        cost_tier: medium
+      - test: "Procalcitonin"
+        condition: "sepsis suspected"
+        cost_tier: medium
+      - test: "CXR"
+        condition: "respiratory symptoms or cough present"
+        cost_tier: low
+      - test: "LFTs"
+        condition: "abdominal pain or jaundice"
+        cost_tier: low
+    requires_doctor:
+      - "CT scan (any)"
+      - "Lumbar puncture"
+      - "IV antibiotics decision"
+      - "Any invasive procedure"
+
+  uti_pyelonephritis:
+    display_name: "Dysuria / Flank pain / Urinary"
+    keywords: ["dysuria", "حرقة بولية", "flank pain", "ألم خاصرة", "UTI", "urinary frequency",
+               "pyelonephritis", "التهاب الكلية", "frequency", "cloudy urine"]
+    auto_order:
+      - test: "Urinalysis + microscopy"
+        reason: "Diagnose urinary infection"
+        cost_tier: low
+        timing: immediate
+      - test: "Urine culture"
+        reason: "Identify organism and sensitivity"
+        cost_tier: low
+        timing: routine
+      - test: "CBC"
+        reason: "Assess infection severity"
+        cost_tier: low
+        timing: routine
+      - test: "BMP (Creatinine + Electrolytes)"
+        reason: "Assess renal function — critical if CKD background"
+        cost_tier: low
+        timing: routine
+      - test: "CRP"
+        reason: "Inflammation marker"
+        cost_tier: low
+        timing: routine
+    conditional:
+      - test: "Blood culture x2"
+        condition: "temperature > 38.5"
+        reason: "Septicaemia risk"
+        cost_tier: medium
+      - test: "Renal Ultrasound"
+        condition: "suspected obstruction or stone"
+        cost_tier: medium
+      - test: "Beta-hCG"
+        condition: "female of reproductive age"
+        reason: "Exclude ectopic pregnancy"
+        cost_tier: low
+    requires_doctor:
+      - "CT urogram"
+      - "Nephrology consult"
+      - "IV antibiotics decision"
+      - "Urology consult"
+
+  chest_pain:
+    display_name: "Chest pain / Cardiac"
+    keywords: ["chest pain", "ألم صدر", "chest tightness", "palpitations", "خفقان",
+               "diaphoresis", "تعرق", "cardiac", "قلب", "angina", "MI"]
+    vital_flags:
+      priority: "ECG within 10 minutes of arrival — ESI-2 consideration"
+    auto_order:
+      - test: "ECG 12-lead"
+        reason: "STEMI exclusion — must be done immediately"
+        cost_tier: low
+        timing: immediate
+      - test: "Troponin I (high sensitivity)"
+        reason: "ACS biomarker"
+        cost_tier: low
+        timing: urgent
+      - test: "CBC"
+        reason: "Baseline, exclude anaemia"
+        cost_tier: low
+        timing: routine
+      - test: "BMP"
+        reason: "Electrolytes + renal function"
+        cost_tier: low
+        timing: routine
+      - test: "CXR"
+        reason: "Pneumothorax / CHF / aortic widening"
+        cost_tier: low
+        timing: urgent
+    conditional:
+      - test: "D-dimer"
+        condition: "PE suspected (immobility, surgery, travel, pleuritic pain)"
+        cost_tier: low
+      - test: "BNP"
+        condition: "heart failure symptoms"
+        cost_tier: medium
+      - test: "Repeat Troponin at 3h"
+        condition: "first troponin negative"
+        cost_tier: low
+      - test: "Lactate (POCT)"
+        condition: "haemodynamic instability"
+        cost_tier: low
+        timing: immediate
+    requires_doctor:
+      - "CT pulmonary angiography"
+      - "CT aortogram"
+      - "Echocardiography"
+      - "Cardiology consult"
+      - "Thrombolytics"
+      - "Cath lab activation"
+
+  dyspnea:
+    display_name: "Shortness of breath / Dyspnea"
+    keywords: ["dyspnea", "ضيق تنفس", "shortness of breath", "breathlessness",
+               "صعوبة تنفس", "wheezing", "respiratory distress"]
+    vital_flags:
+      spo2_lt: 95
+    auto_order:
+      - test: "SpO2 continuous monitoring"
+        reason: "Oxygenation monitoring — immediate if <92%"
+        cost_tier: low
+        timing: immediate
+      - test: "ECG"
+        reason: "Arrhythmia, pulmonary hypertension, PE changes"
+        cost_tier: low
+        timing: urgent
+      - test: "CXR"
+        reason: "Pneumonia, CHF, pneumothorax, effusion"
+        cost_tier: low
+        timing: urgent
+      - test: "CBC"
+        reason: "Infection, anaemia"
+        cost_tier: low
+        timing: routine
+      - test: "BMP"
+        reason: "Renal / metabolic contribution"
+        cost_tier: low
+        timing: routine
+    conditional:
+      - test: "ABG (arterial blood gas)"
+        condition: "SpO2 < 92% or severe respiratory distress"
+        cost_tier: medium
+        timing: urgent
+      - test: "BNP or NT-proBNP"
+        condition: "heart failure suspected"
+        cost_tier: medium
+      - test: "D-dimer"
+        condition: "PE suspected"
+        cost_tier: low
+      - test: "Procalcitonin"
+        condition: "bacterial infection suspected"
+        cost_tier: medium
+    requires_doctor:
+      - "CT chest / CT-PA"
+      - "Bronchoscopy"
+      - "Non-invasive ventilation (NIV)"
+      - "Intubation"
+      - "Pulmonology consult"
+
+  abdominal_pain:
+    display_name: "Abdominal pain (medical)"
+    keywords: ["abdominal pain", "ألم بطن", "belly pain", "stomach pain", "مغص",
+               "nausea", "غثيان", "vomiting", "قيء", "epigastric", "RUQ", "LLQ"]
+    auto_order:
+      - test: "CBC"
+        reason: "Infection / bleeding screen"
+        cost_tier: low
+        timing: routine
+      - test: "BMP"
+        reason: "Renal / metabolic cause"
+        cost_tier: low
+        timing: routine
+      - test: "LFTs"
+        reason: "Hepatic / biliary cause"
+        cost_tier: low
+        timing: routine
+      - test: "Lipase"
+        reason: "Pancreatitis"
+        cost_tier: low
+        timing: routine
+      - test: "Urinalysis"
+        reason: "Renal colic / UTI"
+        cost_tier: low
+        timing: routine
+      - test: "CRP"
+        reason: "Inflammation marker"
+        cost_tier: low
+        timing: routine
+    conditional:
+      - test: "Beta-hCG"
+        condition: "female of reproductive age"
+        reason: "Ectopic pregnancy exclusion — mandatory"
+        cost_tier: low
+        timing: urgent
+      - test: "Abdominal Ultrasound"
+        condition: "biliary, renal, or gynaecological cause suspected"
+        cost_tier: medium
+      - test: "Lactate (POCT)"
+        condition: "haemodynamic instability or suspected ischaemia"
+        cost_tier: low
+        timing: immediate
+    requires_doctor:
+      - "CT abdomen/pelvis"
+      - "Surgical consult"
+      - "IV analgesia"
+      - "Endoscopy"
+      - "Gynaecology consult"
+
+  altered_consciousness:
+    display_name: "Confusion / Altered mental status"
+    keywords: ["confusion", "تشوش", "altered consciousness", "اضطراب وعي", "drowsy",
+               "unresponsive", "disoriented", "GCS reduced", "lethargy", "ضعف عام مع تشوش"]
+    vital_flags:
+      priority: "Glucose POCT immediately — before anything else"
+    auto_order:
+      - test: "Blood glucose (fingerstick POCT)"
+        reason: "Hypoglycaemia is immediately reversible — highest priority"
+        cost_tier: low
+        timing: immediate
+      - test: "ECG"
+        reason: "Arrhythmia causing haemodynamic compromise"
+        cost_tier: low
+        timing: urgent
+      - test: "CBC"
+        reason: "Infection, anaemia"
+        cost_tier: low
+        timing: routine
+      - test: "BMP (Na, K, Cr, Glucose)"
+        reason: "Metabolic cause — hypo/hypernatraemia, uraemia, hyperosmolar"
+        cost_tier: low
+        timing: urgent
+      - test: "ABG"
+        reason: "Acid-base status — CO2 retention, metabolic acidosis"
+        cost_tier: medium
+        timing: urgent
+      - test: "Urinalysis"
+        reason: "Urinary sepsis source"
+        cost_tier: low
+        timing: routine
+    conditional:
+      - test: "Ammonia"
+        condition: "hepatic encephalopathy suspected (liver disease history)"
+        cost_tier: medium
+      - test: "TSH"
+        condition: "thyroid disease history or myxoedema suspected"
+        cost_tier: medium
+      - test: "Blood culture x2"
+        condition: "fever present"
+        cost_tier: medium
+      - test: "Lactate (POCT)"
+        condition: "sepsis suspected"
+        cost_tier: low
+        timing: immediate
+    requires_doctor:
+      - "CT head"
+      - "Lumbar puncture"
+      - "Neurology consult"
+      - "Psychiatry consult"
+      - "Naloxone (opioid reversal)"
+      - "Intubation"
