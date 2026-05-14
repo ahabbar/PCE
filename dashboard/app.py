@@ -370,6 +370,78 @@ with tab2:
                 f" &nbsp;|&nbsp; Status: {pt['status']}</span></div>",
                 unsafe_allow_html=True,
             )
+            patient_id = pt["patient_id"]
+            with st.expander("Actions", expanded=False):
+                col_assign, col_exit = st.columns(2)
+
+                with col_assign:
+                    st.markdown("**Assign Doctor**")
+                    assigned = pt.get("status") == "assigned"
+                    if assigned:
+                        st.success(f"Doctor assigned")
+                    elif st.button("Assign Doctor", key=f"assign_{patient_id}"):
+                        try:
+                            ar = requests.post(f"{API_URL}/assign/{patient_id}",
+                                               json={"esi_level": pt["esi_level"]}, timeout=10)
+                            if ar.status_code == 200:
+                                d = ar.json()
+                                if d.get("assigned"):
+                                    st.success(f"Assigned: {d['doctor_name']} ({d['doctor_role']})")
+                                    st.rerun()
+                                else:
+                                    st.warning("No doctor available.")
+                            else:
+                                st.warning(f"Error {ar.status_code}")
+                        except Exception as exc:
+                            st.warning(f"Error: {exc}")
+
+                with col_exit:
+                    st.markdown("**Generate Exit Plan**")
+                    exit_key = f"exit_plan_{patient_id}"
+                    if exit_key not in st.session_state:
+                        disposition = st.selectbox(
+                            "Disposition", ["discharge", "admit", "icu", "transfer"],
+                            key=f"disp_{patient_id}"
+                        )
+                        diagnosis = st.text_input(
+                            "Confirmed diagnosis", key=f"diag_{patient_id}",
+                            placeholder="e.g. Pyelonephritis + AKI stage 2"
+                        )
+                        doctor_name = pt.get("assigned_doctor") or "Unknown"
+                        if st.button("Generate Exit Plan", key=f"exit_{patient_id}"):
+                            if diagnosis:
+                                try:
+                                    with st.spinner("Generating..."):
+                                        er = requests.post(f"{API_URL}/exit/{patient_id}", json={
+                                            "disposition": disposition,
+                                            "confirmed_diagnosis": diagnosis,
+                                            "doctor_name": doctor_name,
+                                        }, timeout=60)
+                                    if er.status_code == 200:
+                                        st.session_state[exit_key] = er.json()
+                                        st.rerun()
+                                    else:
+                                        st.warning(f"Error {er.status_code}: {er.text[:100]}")
+                                except Exception as exc:
+                                    st.warning(f"Error: {exc}")
+                            else:
+                                st.warning("Enter confirmed diagnosis first.")
+                    else:
+                        plan = st.session_state[exit_key]
+                        if plan.get("instructions"):
+                            st.text_area("Discharge Instructions", plan["instructions"],
+                                         height=120, key=f"inst_{patient_id}", disabled=True)
+                        if plan.get("handover_note"):
+                            st.text_area("Handover Note", plan["handover_note"],
+                                         height=120, key=f"hn_{patient_id}", disabled=True)
+                        if plan.get("gp_letter_draft"):
+                            st.text_area("GP Letter", plan["gp_letter_draft"],
+                                         height=100, key=f"gpl_{patient_id}", disabled=True)
+                        if plan.get("prescription_notes"):
+                            st.caption(f"Prescription notes: {plan['prescription_notes']}")
+                        if st.button("Clear Exit Plan", key=f"clear_{patient_id}"):
+                            del st.session_state[exit_key]
+                            st.rerun()
 
     batch_summary = queue_data.get("batch_summary", {})
     if batch_summary:
@@ -377,3 +449,67 @@ with tab2:
         st.markdown("**Batch Summary** (tests shared by 2+ patients)")
         for test, count in batch_summary.items():
             st.markdown(f"- {test}: {count} patients")
+
+    st.divider()
+    st.subheader("Doctor Load")
+    try:
+        dr_resp = requests.get(f"{API_URL}/doctors", timeout=5)
+        if dr_resp.status_code == 200:
+            doctors = dr_resp.json().get("doctors", [])
+            if doctors:
+                for d in doctors:
+                    role_label = d["role"].replace("_", " ").title()
+                    cases = d["active_cases"]
+                    remaining = d["total_remaining_min"]
+                    st.markdown(f"**{d['name']}** ({role_label})")
+                    st.progress(d["load_pct"] / 100)
+                    st.caption(f"{cases} case{'s' if cases != 1 else ''} · {remaining:.0f} min remaining")
+            else:
+                st.info("No active doctor load.")
+        else:
+            st.warning("Could not fetch doctor data.")
+    except requests.exceptions.ConnectionError:
+        st.warning("API server offline — doctor load unavailable.")
+    except Exception as exc:
+        st.warning(f"Doctor load error: {exc}")
+
+    st.divider()
+    st.subheader("Inject Lab Result")
+    st.caption("Simulate a result arriving from the lab system")
+
+    if patients:
+        with st.form("lab_result_form"):
+            pt_options = {p["patient_id"][:8]: p["patient_id"] for p in patients}
+            selected_short = st.selectbox("Patient (first 8 chars of ID)", options=list(pt_options.keys()))
+            test_name = st.text_input("Test name", value="Creatinine")
+            result_val = st.text_input("Result value", value="1.9 mmol/L (elevated)")
+            is_critical = st.checkbox("Mark as critical value", value=False)
+            inject_btn = st.form_submit_button("Inject Result")
+
+        if inject_btn:
+            full_id = pt_options[selected_short]
+            try:
+                resp = requests.post(f"{API_URL}/result", json={
+                    "patient_id": full_id,
+                    "test_name": test_name,
+                    "result_value": result_val,
+                    "result_time": time.time(),
+                    "is_critical": is_critical,
+                }, timeout=60)
+                if resp.status_code == 200:
+                    ev = resp.json()
+                    if ev.get("message"):
+                        st.info(ev["message"])
+                    elif ev.get("queue_reordered"):
+                        st.warning(f"Queue re-sorted: {ev['old_score']:.0f}% → {ev['new_score']:.0f}% (Δ{ev['delta']:+.0f})")
+                    else:
+                        st.info(f"Score updated: {ev.get('old_score', 0):.0f}% → {ev.get('new_score', 0):.0f}%")
+                    st.rerun()
+                else:
+                    st.warning(f"Server returned {resp.status_code}: {resp.text[:200]}")
+            except requests.exceptions.ConnectionError:
+                st.warning("API server not running.")
+            except Exception as exc:
+                st.warning(f"Error: {exc}")
+    else:
+        st.info("No patients in queue to inject results for.")
