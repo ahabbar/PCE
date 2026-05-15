@@ -23,20 +23,23 @@ st.set_page_config(page_title="PCE — Parallel Care Engine", layout="wide")
 st.markdown("""
 <style>
   /* Lock the whole app to viewport — no page-level scroll */
-  html, body, [data-testid="stAppViewContainer"], .stApp {
+  html, body, [data-testid="stAppViewContainer"], .stApp, [data-testid="stApp"] {
       height: 100vh !important;
       max-height: 100vh !important;
       overflow: hidden !important;
   }
   /* The main column = viewport minus header */
-  [data-testid="stMain"], section.main, .main {
-      height: calc(100vh - 60px) !important;
-      max-height: calc(100vh - 60px) !important;
+  [data-testid="stMain"], section.main, .main, [data-testid="stMainContainer"] {
+      height: calc(100vh - 56px) !important;
+      max-height: calc(100vh - 56px) !important;
       overflow: hidden !important;
+      padding: 0 !important;
   }
-  /* Tighter overall padding, no max-width cap */
-  .block-container, [data-testid="block-container"] {
-      padding-top: 0.6rem !important;
+  /* Tighter overall padding, scroll inside the block container only */
+  .block-container,
+  [data-testid="block-container"],
+  [data-testid="stMainBlockContainer"] {
+      padding-top: 0.5rem !important;
       padding-bottom: 0.4rem !important;
       padding-left: 1rem !important;
       padding-right: 1rem !important;
@@ -45,6 +48,9 @@ st.markdown("""
       max-height: 100% !important;
       overflow-y: auto !important;
   }
+  /* Hide the Streamlit footer + decoration so we don't lose vertical space */
+  [data-testid="stDecoration"], footer { display: none !important; }
+  [data-testid="stHeader"] { height: 0 !important; min-height: 0 !important; background: transparent !important; }
   /* Smaller titles to leave room for content */
   h1 { font-size: 1.5rem !important; margin: 0 0 4px 0 !important; padding: 0 !important; }
   h2 { font-size: 1.2rem !important; margin: 4px 0 !important; }
