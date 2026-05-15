@@ -1,18 +1,10 @@
-# Railway builds with Nixpacks. This pins Python 3.11 (which has wider package
-# support than 3.14) and installs requirements.
+# Pin Python 3.11 so wheels resolve. Let Nixpacks auto-handle venv + pip install
+# from requirements.txt (puts uvicorn/streamlit on PATH).
 [phases.setup]
 nixPkgs = ["python311", "gcc"]
-
-[phases.install]
-cmds = [
-  "python3.11 -m venv /opt/venv",
-  "/opt/venv/bin/pip install --upgrade pip",
-  "/opt/venv/bin/pip install -r requirements.txt",
-]
 
 [phases.build]
 cmds = ["mkdir -p data logs"]
 
 [start]
-# Default; overridden per-service in Railway dashboard
-cmd = "/opt/venv/bin/uvicorn src.api.server:app --host 0.0.0.0 --port $PORT"
+cmd = "uvicorn src.api.server:app --host 0.0.0.0 --port $PORT"

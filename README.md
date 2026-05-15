@@ -112,7 +112,7 @@ git push -u origin main
 1. In the same project, **+ New** → **GitHub repo** → pick PCE again.
 2. Open the new service → **Settings** → **Deploy** → **Custom Start Command**:
    ```
-   /opt/venv/bin/streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+   streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
    ```
 3. **Settings** → **Networking** → **Generate Domain** (so users can reach the UI).
 
