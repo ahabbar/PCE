@@ -527,7 +527,7 @@ with st.sidebar:
 with tab1:
     left, right = st.columns([4, 6])
 
-    with left:
+    with left, st.container(height=560, border=False):
         st.subheader("Patient Intake")
         cc_key = st.selectbox("Primary Chief Complaint", options=list(CC_OPTIONS.keys()),
                               format_func=lambda k: CC_OPTIONS[k])
@@ -583,7 +583,7 @@ with tab1:
         patient_load = st.slider("Current ED Patient Load", 0, 40, 10)
         run_btn = st.button("Analyze — Run Agents 1 + 2 in Parallel", type="primary", use_container_width=True)
 
-    with right:
+    with right, st.container(height=560, border=False):
         st.subheader("Agent Results")
 
         if run_btn:
@@ -995,7 +995,7 @@ with tab4:
 
     left3, right3 = st.columns([4, 6])
 
-    with left3:
+    with left3, st.container(height=540, border=False):
         demo_cc = st.text_input("Chief Complaint",
             placeholder="e.g. chest pain and diaphoresis, confusion, fever and flank pain...",
             key="demo_cc")
@@ -1014,7 +1014,7 @@ with tab4:
         demo_analyze = st.button("Analyze — Run All 7 Agents", type="primary",
                                   key="demo_analyze", use_container_width=True)
 
-    with right3:
+    with right3, st.container(height=540, border=False):
         if demo_analyze and demo_cc:
             comorbidities = [c.strip() for c in demo_comorbidities.split(",") if c.strip()] if demo_comorbidities else []
             try:
@@ -1239,7 +1239,7 @@ with tab4:
 
 # ── Tab 5: Analytics ──────────────────────────────────────────────────────────
 
-with tab5:
+with tab5, st.container(height=600, border=False):
     st.subheader("Session Analytics")
     if st.button("Refresh Analytics", key="analytics_refresh"):
         st.rerun()
