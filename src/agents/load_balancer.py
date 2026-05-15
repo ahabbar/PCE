@@ -143,6 +143,11 @@ class DoctorLoadBalancer:
         ]
         return sorted(report, key=lambda x: x["load_pct"], reverse=True)
 
+    def reset_all(self) -> None:
+        """Clear all active cases from all doctors (call on demo reset/seed)."""
+        for doctor in self._doctors:
+            doctor.active_cases.clear()
+
     def get_all_doctors(self) -> list[Doctor]:
         return self._doctors
 

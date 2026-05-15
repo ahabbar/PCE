@@ -19,8 +19,29 @@ class ProtocolWhitelist:
             )
         with open(yaml_path, encoding="utf-8-sig") as f:
             data = yaml.safe_load(f)
+        self._data = data
         self._protocols: dict = data["protocols"]
-        logger.info("ProtocolWhitelist loaded %d protocols", len(self._protocols))
+        self._master_tests = self._build_master_test_set()
+        logger.info("ProtocolWhitelist loaded %d protocols, %d master tests",
+                    len(self._protocols), len(self._master_tests))
+
+    def _build_master_test_set(self) -> set[str]:
+        """Flatten master_approved_tests into a set for O(1) lookup."""
+        master = self._data.get("master_approved_tests", {})
+        return {t.lower() for cat in master.values()
+                if isinstance(cat, list) for t in cat}
+
+    def is_allowed(self, protocol_key: str, test_name: str) -> bool:
+        """Check test against master list (global guard) then requires_doctor."""
+        test_lower = test_name.lower()
+        # Must appear in master list first
+        in_master = any(test_lower in m or m in test_lower
+                        for m in self._master_tests)
+        if not in_master:
+            return False
+        # Must not be in requires_doctor for this protocol
+        requires_doc = self.get_requires_doctor(protocol_key)
+        return not any(test_lower in r.lower() for r in requires_doc)
 
     def match(self, chief_complaint: str) -> Optional[str]:
         text = chief_complaint.lower()
@@ -46,24 +67,6 @@ class ProtocolWhitelist:
 
     def get_conditional_orders(self, key: str) -> list[dict]:
         return self._protocols.get(key, {}).get("conditional", [])
-
-    def is_allowed(self, protocol_key: str, test_name: str) -> bool:
-        if protocol_key not in self._protocols:
-            return False
-        proto = self._protocols[protocol_key]
-        test_lower = test_name.lower()
-
-        requires_doctor = [r.lower() for r in proto.get("requires_doctor", [])]
-        for rd in requires_doctor:
-            if rd.startswith(test_lower) or test_lower.startswith(rd):
-                return False
-
-        all_orders = proto.get("auto_order", []) + proto.get("conditional", [])
-        for order in all_orders:
-            wl_lower = order["test"].lower()
-            if wl_lower.startswith(test_lower) or test_lower.startswith(wl_lower):
-                return True
-        return False
 
     def get_requires_doctor(self, key: str) -> list[str]:
         return self._protocols.get(key, {}).get("requires_doctor", [])

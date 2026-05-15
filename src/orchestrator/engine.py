@@ -30,6 +30,48 @@ class TriageResult:
     parallel_confirmed: bool
 
 
+async def try_cascade_assignment(freed_doctor_name: str | None = None) -> list[dict]:
+    """Called when a doctor becomes free. Assigns freed slot to next eligible patient."""
+    from src.agents.load_balancer import get_load_balancer
+    from src.orchestrator.queue import get_queue
+    queue = get_queue()
+    lb = get_load_balancer()
+    assignments_made = []
+
+    sorted_patients = await queue.get_sorted_queue()
+    for patient in sorted_patients:
+        if patient.assigned_doctor:
+            continue
+        if patient.result_count < 1:
+            continue
+
+        esi = patient.triage_score.esi_level if patient.triage_score else 3
+        assignment = lb.assign_patient(patient.intake.patient_id, esi_level=esi)
+        if not assignment.assigned_doctor:
+            break
+
+        await queue.assign_doctor(patient.intake.patient_id, assignment.assigned_doctor.name)
+        try:
+            await log_agent_action(
+                patient_id=patient.intake.patient_id, agent_id=5,
+                action="cascade_assign_on_doctor_freed",
+                inputs_summary=f"Freed: {freed_doctor_name or 'unknown'} | ESI-{esi} | count={patient.result_count}",
+                outputs_summary=f"→ {assignment.assigned_doctor.name} ({assignment.assigned_doctor.role.value})",
+                latency_ms=0, model_used="rules",
+            )
+        except Exception:
+            pass
+        assignments_made.append({
+            "patient_id": patient.intake.patient_id,
+            "assigned_to": assignment.assigned_doctor.name,
+            "reason": f"cascade: {freed_doctor_name} became free",
+        })
+        logger.info("Agent 5 cascade: %s → %s", patient.intake.patient_id[:8], assignment.assigned_doctor.name)
+        break  # one slot freed = one assignment
+
+    return assignments_made
+
+
 async def process_patient(
     intake: IntakeForm,
     patient_load: int = 10,

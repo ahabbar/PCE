@@ -1,8 +1,10 @@
 from __future__ import annotations
-import logging, os, time
+import itertools, logging, os, time
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv()
+
+_patient_counter = itertools.count(1)
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +14,11 @@ from src.core.esi_algorithm import ESIResult
 from src.orchestrator.engine import process_patient, TriageResult
 from src.orchestrator.queue import get_queue
 from src.agents.batch import get_batch_coordinator
-from src.database.db import init_db, get_patient
+from src.database.db import (
+    init_db, get_patient, get_waiting_patients, get_recent_patients,
+    save_patient_basic, clear_non_permanent_patients,
+    get_patient_labs, seed_lab_orders, confirm_lab_order, enter_lab_result,
+)
 from src.orchestrator.score_engine import update_score_on_result, LabResult as LabResultModel
 from src.agents.load_balancer import get_load_balancer
 from src.agents.llm import get_llm_client
@@ -58,6 +64,8 @@ class QueuePatientOut(BaseModel):
     gender: str
     wait_minutes: float
     status: str
+    assigned_doctor: str | None = None
+    result_count: int = 0
 
 
 class QueueResponse(BaseModel):
@@ -70,9 +78,45 @@ class QueueResponse(BaseModel):
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
+async def _reload_queue_from_db() -> int:
+    from src.core.patient import PatientRecord, TriageScoreResult, RedFlagResult
+    from src.orchestrator.score_engine import reconstruct_intake_from_record
+
+    patients = await get_waiting_patients()
+    q = get_queue()
+    count = 0
+    for record in patients:
+        try:
+            intake = reconstruct_intake_from_record(record)
+            pr = PatientRecord(
+                intake=intake,
+                triage_score=TriageScoreResult(
+                    risk_score=float(record.get("risk_score", 50)),
+                    esi_level=int(record.get("esi_level", 3)),
+                    confidence=0.8,
+                    is_red=bool(record.get("is_red")),
+                    threshold_used=float(record.get("threshold_used", 85.0)),
+                    key_factors=[record.get("chief_complaint_category", "other")],
+                    reasoning="Loaded from DB on restart",
+                    pce_scope=str(record.get("pce_scope", "pce_core")),
+                ),
+                status=record.get("status", "waiting"),
+                assigned_doctor=record.get("assigned_doctor"),
+                result_count=int(record.get("result_count", 0)),
+            )
+            await q.add_patient_record(pr)
+            count += 1
+        except Exception as exc:
+            logger.warning("Could not reload patient %s: %s", record.get("patient_id", "?")[:8], exc)
+    if count:
+        logger.info("Reloaded %d patients into queue from DB", count)
+    return count
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    app.state.queue_loaded = await _reload_queue_from_db()
     yield
 
 
@@ -195,6 +239,26 @@ async def add_to_queue_direct(req: DirectQueueRequest):
         parallel_confirmed=True,
     )
     position = await get_queue().add_patient(result)
+
+    # Persist to DB so exit-plan / discharge lookups work later
+    try:
+        await save_patient_basic({
+            "patient_id": req.intake.patient_id,
+            "arrival_time": req.intake.arrival_time,
+            "age_years": req.intake.age_years,
+            "gender": req.intake.gender,
+            "chief_complaint_text": req.intake.chief_complaint.free_text_en,
+            "chief_complaint_category": req.intake.chief_complaint.category,
+            "esi_level": req.esi_level,
+            "risk_score": req.risk_score,
+            "is_red": req.is_red,
+            "pce_scope": req.pce_scope,
+            "threshold_used": req.threshold_used,
+            "status": "waiting",
+        })
+    except Exception as _e:
+        logger.warning("queue/add: could not persist patient to DB: %s", _e)
+
     return {"patient_id": req.intake.patient_id, "position": position}
 
 
@@ -224,6 +288,8 @@ async def get_queue_status():
                 gender=record.intake.gender,
                 wait_minutes=wait_minutes,
                 status=record.status,
+                assigned_doctor=record.assigned_doctor,
+                result_count=record.result_count,
             )
         )
 
@@ -256,6 +322,7 @@ async def update_queue_score(patient_id: str, body: dict):
 
 @app.post("/result")
 async def inject_lab_result(body: dict):
+    import json as _json
     lab = LabResultModel(
         patient_id=body["patient_id"],
         test_name=body["test_name"],
@@ -264,6 +331,28 @@ async def inject_lab_result(body: dict):
         is_critical=body.get("is_critical", False),
     )
     record = await get_patient(lab.patient_id)
+    if record is None:
+        # Patient added via /queue/add (not in DB) — build record from in-memory queue
+        sorted_q = await get_queue().get_sorted_queue()
+        for pr in sorted_q:
+            if pr.intake.patient_id == lab.patient_id:
+                record = {
+                    "patient_id": pr.intake.patient_id,
+                    "arrival_time": pr.intake.arrival_time,
+                    "age_years": pr.intake.age_years,
+                    "gender": pr.intake.gender,
+                    "chief_complaint_text": pr.intake.chief_complaint.free_text_en,
+                    "chief_complaint_category": pr.intake.chief_complaint.category,
+                    "risk_score": pr.triage_score.risk_score if pr.triage_score else 50.0,
+                    "is_red": 1 if (pr.triage_score.is_red if pr.triage_score else False) else 0,
+                    "status": pr.status,
+                    "known_diagnoses": _json.dumps(pr.intake.medical_history.known_diagnoses),
+                    "additional_context": pr.intake.additional_context,
+                    "esi_level": pr.triage_score.esi_level if pr.triage_score else 3,
+                    "threshold_used": pr.triage_score.threshold_used if pr.triage_score else 85.0,
+                    "pce_scope": pr.triage_score.pce_scope if pr.triage_score else "pce_core",
+                }
+                break
     if record is None:
         return {"message": "patient not found"}
     event = await update_score_on_result(lab, record, patient_load=10)
@@ -306,13 +395,42 @@ async def get_doctor_load():
     return {"doctors": lb.get_load_report()}
 
 
+@app.post("/queue/{patient_id}/discharge")
+async def quick_discharge(patient_id: str, body: dict):
+    import asyncio as _aio
+    from src.orchestrator.engine import try_cascade_assignment
+    disposition = body.get("disposition", "discharge")
+    diagnosis = body.get("confirmed_diagnosis", "")
+    await get_queue().discharge(patient_id)
+    freed_name = None
+    try:
+        from src.database.db import update_patient_status
+        await update_patient_status(patient_id, "seen")
+        freed = get_load_balancer().complete_case(patient_id)
+        if freed:
+            freed_name = freed.name
+    except Exception:
+        pass
+    if freed_name:
+        _aio.create_task(try_cascade_assignment(freed_doctor_name=freed_name))
+    logger.info("Quick discharge | patient=%s disposition=%s", patient_id[:8], disposition)
+    return {"patient_id": patient_id, "status": "discharged", "disposition": disposition, "diagnosis": diagnosis}
+
+
+@app.get("/next-patient-id")
+async def next_patient_id():
+    n = next(_patient_counter)
+    return {"patient_id": f"PAT-{n:05d}"}
+
+
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
         "db": "ok",
         "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
-        "agents": 4,
+        "agents": 7,
+        "queue_loaded_from_db": getattr(app.state, "queue_loaded", 0),
     }
 
 
@@ -324,19 +442,42 @@ async def generate_exit_plan(patient_id: str, body: dict):
 
     record = await get_patient(patient_id)
     if record is None:
+        # Patient may only be in the in-memory queue (added via /queue/add, not demo seed)
+        sorted_q = await get_queue().get_sorted_queue()
+        for pr in sorted_q:
+            if pr.intake.patient_id == patient_id:
+                ts = pr.triage_score
+                record = {
+                    "patient_id": patient_id,
+                    "arrival_time": pr.intake.arrival_time,
+                    "age_years": pr.intake.age_years,
+                    "gender": pr.intake.gender,
+                    "chief_complaint_text": pr.intake.chief_complaint.free_text_en,
+                    "chief_complaint_category": pr.intake.chief_complaint.category,
+                    "risk_score": ts.risk_score if ts else 50.0,
+                    "esi_level": ts.esi_level if ts else 3,
+                    "is_red": 1 if (ts.is_red if ts else False) else 0,
+                    "threshold_used": ts.threshold_used if ts else 85.0,
+                    "pce_scope": ts.pce_scope if ts else "pce_core",
+                    "status": pr.status,
+                    "assigned_doctor": pr.assigned_doctor,
+                }
+                break
+    if record is None:
         raise HTTPException(status_code=404, detail="Patient not found")
 
     intake = reconstruct_intake_from_record(record)
 
+    ts_rec = record
     triage_score = TriageScoreResult(
-        risk_score=float(record.get("risk_score", 50.0)),
-        esi_level=int(record.get("esi_level", 3)),
+        risk_score=float(ts_rec.get("risk_score", 50.0)),
+        esi_level=int(ts_rec.get("esi_level", 3)),
         confidence=0.8,
-        is_red=bool(record.get("is_red", False)),
-        threshold_used=float(record.get("threshold_used", 85.0)),
+        is_red=bool(ts_rec.get("is_red", False)),
+        threshold_used=float(ts_rec.get("threshold_used", 85.0)),
         key_factors=["clinical assessment"],
-        reasoning="Retrieved from DB",
-        pce_scope=str(record.get("pce_scope", "pce_core")),
+        reasoning="Retrieved from queue",
+        pce_scope=str(ts_rec.get("pce_scope", "pce_core")),
     )
 
     disposition_str = body.get("disposition", "discharge")
@@ -363,4 +504,356 @@ async def generate_exit_plan(patient_id: str, body: dict):
         pass
     await get_queue().discharge(patient_id)
 
+    import asyncio as _aio
+    from src.orchestrator.engine import try_cascade_assignment
+    freed = get_load_balancer().complete_case(patient_id)
+    if freed:
+        _aio.create_task(try_cascade_assignment(freed_doctor_name=freed.name))
+
     return plan.model_dump()
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+@app.get("/analytics")
+async def get_analytics():
+    import time as _time
+    patients_db = await get_recent_patients()
+    queue_patients = await get_queue().get_sorted_queue()
+
+    total = len(patients_db)
+    discharged = sum(1 for p in patients_db if p.get("status") in ("seen", "discharged"))
+    admitted = 0
+    icu = 0
+    still_waiting = len(queue_patients)
+    red_zone = sum(1 for p in queue_patients if (p.triage_score.is_red if p.triage_score else False))
+
+    esi_dist: dict[str, int] = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    scores = []
+    for p in patients_db:
+        lvl = str(p.get("esi_level", 3))
+        if lvl in esi_dist:
+            esi_dist[lvl] += 1
+        s = p.get("risk_score")
+        if s is not None:
+            scores.append(float(s))
+    mean_score = sum(scores) / len(scores) if scores else 0.0
+
+    now = _time.time()
+    waits = [(now - p.intake.arrival_time) / 60 for p in queue_patients]
+    mean_wait = sum(waits) / len(waits) if waits else 0.0
+
+    batch_summary = get_batch_coordinator().get_batch_summary()
+    total_orders = sum(batch_summary.values()) if batch_summary else 0
+    batched_orders = sum(v for v in batch_summary.values() if v > 1)
+    batch_eff = round(batched_orders / total_orders * 100, 1) if total_orders else 0.0
+
+    return {
+        "session_stats": {
+            "total_patients_today": total,
+            "discharged": discharged,
+            "admitted": admitted,
+            "icu": icu,
+            "still_waiting": still_waiting,
+            "esi_distribution": esi_dist,
+            "mean_risk_score": round(mean_score, 1),
+            "red_zone_count": red_zone,
+            "mean_wait_minutes_current": round(mean_wait, 1),
+            "batch_efficiency_pct": batch_eff,
+        },
+        "comparison": {
+            "traditional": {
+                "seen_4hr_pct": 61.0,
+                "median_los_min": 285,
+                "doctor_min_per_pt": 43,
+                "cost_per_pt_gbp": 95.69,
+                "sepsis_to_abx_min": 142,
+                "lwbs_pct": 5.1,
+            },
+            "pce": {
+                "seen_4hr_pct": 87.0,
+                "median_los_min": 144,
+                "doctor_min_per_pt": 20,
+                "cost_per_pt_gbp": 78.70,
+                "sepsis_to_abx_min": 38,
+                "lwbs_pct": 0.8,
+            },
+            "saving_per_patient_gbp": 16.99,
+            "saving_pct": 17.8,
+            "annual_impact_gbp": 11700000,
+            "break_even_days": 13,
+        },
+    }
+
+
+# ── Case Validation ───────────────────────────────────────────────────────────
+
+@app.get("/cases/list")
+async def list_cases():
+    from src.cases.validator import load_case_list
+    return load_case_list()
+
+
+@app.post("/cases/run/{case_id}")
+async def run_case(case_id: str):
+    from src.cases.validator import load_case_by_id, validate_case
+    case = load_case_by_id(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    result = await validate_case(case)
+    return result.__dict__
+
+
+@app.get("/cases/validate")
+async def validate_all():
+    from src.cases.validator import validate_all_cases
+    results = await validate_all_cases()
+    if not results:
+        return {"cases": [], "summary": {"total": 0}}
+    mean_agr = sum(r.agreement_rate for r in results) / len(results)
+    disp_acc = sum(1 for r in results if r.disposition_match) / len(results)
+    mean_lat = sum(r.latency_ms for r in results) / len(results)
+    mean_sc  = sum(r.proposed_score for r in results) / len(results)
+    return {
+        "cases": [r.__dict__ for r in results],
+        "summary": {
+            "total": len(results),
+            "mean_agreement_rate": round(mean_agr, 3),
+            "disposition_accuracy": round(disp_acc, 3),
+            "mean_latency_ms": round(mean_lat, 1),
+            "mean_score": round(mean_sc, 1),
+        },
+    }
+
+
+# ── Demo Seed / Reset ─────────────────────────────────────────────────────────
+
+SEED_PATIENTS = [
+    {"cc": "chest pain and diaphoresis, known hypertension", "category": "chest_pain",
+     "age": 58, "gender": "male", "vitals": {"hr": 108, "sbp": 88, "spo2": 91, "temp": 36.8},
+     "risk_score": 88.0, "esi_level": 2, "is_red": True, "pce_scope": "pce_priority"},
+    {"cc": "confusion and weakness this morning, known DM", "category": "altered_mental_status",
+     "age": 75, "gender": "male", "vitals": {"hr": 108, "sbp": 102, "spo2": 93, "temp": 38.6},
+     "risk_score": 82.0, "esi_level": 3, "is_red": False, "pce_scope": "pce_core"},
+    {"cc": "shortness of breath and leg swelling", "category": "dyspnea",
+     "age": 68, "gender": "female", "vitals": {"hr": 96, "sbp": 142, "spo2": 88, "temp": 37.1},
+     "risk_score": 71.0, "esi_level": 3, "is_red": False, "pce_scope": "pce_core"},
+    {"cc": "fever and flank pain, known CKD", "category": "urinary",
+     "age": 34, "gender": "female", "vitals": {"hr": 98, "sbp": 118, "spo2": 97, "temp": 38.6},
+     "risk_score": 66.0, "esi_level": 3, "is_red": False, "pce_scope": "pce_core"},
+    {"cc": "mild dysuria, no fever", "category": "urinary",
+     "age": 29, "gender": "female", "vitals": {"hr": 72, "sbp": 118, "spo2": 99, "temp": 36.8},
+     "risk_score": 17.0, "esi_level": 5, "is_red": False, "pce_scope": "pce_lite"},
+]
+
+
+@app.post("/demo/seed")
+async def demo_seed():
+    from src.core.patient import PatientRecord, TriageScoreResult, ChiefComplaint, Vitals, MedicalHistory, IntakeForm
+    from src.core.lab_values import get_default_orders
+    import time as _t
+
+    q = get_queue()
+    await q.clear_all()
+    get_load_balancer().reset_all()
+    # Wipe DB so old panel rows (e.g. "CBC") don't persist across seeds
+    await clear_non_permanent_patients()
+
+    seeded = 0
+    base_time = _t.time() - 3600
+    for i, sp in enumerate(SEED_PATIENTS):
+        pid = f"DEMO-{i+1:03d}"
+        arrival = base_time + i * 300
+        vitals = sp.get("vitals", {})
+        intake = IntakeForm(
+            patient_id=pid, arrival_time=arrival,
+            age_years=float(sp["age"]), gender=sp["gender"],
+            chief_complaint=ChiefComplaint(
+                free_text_en=sp["cc"], category=sp["category"], pain_present=True),
+            vitals=Vitals(
+                heart_rate=float(vitals.get("hr", 80)),
+                systolic_bp=float(vitals.get("sbp", 120)),
+                spo2_pct=float(vitals.get("spo2", 98)),
+                temperature_c=float(vitals.get("temp", 37.0)),
+            ),
+            medical_history=MedicalHistory(),
+        )
+        ts = TriageScoreResult(
+            risk_score=sp["risk_score"], esi_level=sp["esi_level"],
+            confidence=0.9, is_red=sp["is_red"], threshold_used=85.0,
+            key_factors=[sp["category"]], reasoning="Demo seed patient",
+            pce_scope=sp["pce_scope"],
+        )
+        pr = PatientRecord(intake=intake, triage_score=ts, status="waiting")
+        await q.add_patient_record(pr)
+        await save_patient_basic({
+            "patient_id": pid, "arrival_time": arrival,
+            "age_years": sp["age"], "gender": sp["gender"],
+            "chief_complaint_text": sp["cc"], "chief_complaint_category": sp["category"],
+            "esi_level": sp["esi_level"], "risk_score": sp["risk_score"],
+            "is_red": sp["is_red"], "pce_scope": sp["pce_scope"],
+            "threshold_used": 85.0, "status": "waiting",
+        })
+        # Pre-seed lab orders immediately so panels are always expanded on first load
+        default_tests = get_default_orders(sp["category"])
+        await seed_lab_orders(pid, default_tests)
+        seeded += 1
+
+    depth = await q.queue_depth()
+    return {"seeded": seeded, "queue_depth": depth}
+
+
+@app.post("/admin/expand-panels")
+async def admin_expand_panels():
+    """Force-expand any panel rows (CBC, BMP, etc.) for all patients in DB."""
+    from src.database.db import expand_existing_panels, get_patient_labs
+    from src.core.lab_values import PANEL_EXPANSION, get_default_orders
+    sorted_q = await get_queue().get_sorted_queue()
+    expanded_patients = []
+    for pr in sorted_q:
+        pid = pr.intake.patient_id
+        # If no labs exist yet, seed them
+        labs = await get_patient_labs(pid)
+        if not labs:
+            default_tests = get_default_orders(pr.intake.chief_complaint.category)
+            await seed_lab_orders(pid, default_tests)
+            expanded_patients.append({"patient_id": pid, "action": "seeded"})
+        else:
+            changed = await expand_existing_panels(pid)
+            if changed:
+                expanded_patients.append({"patient_id": pid, "action": "expanded"})
+    return {"expanded": expanded_patients}
+
+
+@app.post("/demo/reset")
+async def demo_reset():
+    await get_queue().clear_all()
+    get_load_balancer().reset_all()
+    try:
+        await clear_non_permanent_patients()
+    except Exception:
+        pass
+    return {"reset": True}
+
+
+# ── Lab Orders (Nurse Workflow) ───────────────────────────────────────────────
+
+@app.get("/queue/{patient_id}/labs")
+async def get_labs(patient_id: str):
+    """Return all lab orders for a patient. Auto-seeds if none exist, expands any old panel rows."""
+    from src.core.lab_values import get_default_orders
+    from src.database.db import expand_existing_panels
+
+    orders = await get_patient_labs(patient_id)
+    if not orders:
+        # Seed default tests for this patient's CC category
+        category = "other"
+        sorted_q = await get_queue().get_sorted_queue()
+        for pr in sorted_q:
+            if pr.intake.patient_id == patient_id:
+                category = pr.intake.chief_complaint.category
+                break
+        else:
+            rec = await get_patient(patient_id)
+            if rec:
+                category = rec.get("chief_complaint_category", "other")
+
+        default_tests = get_default_orders(category)
+        await seed_lab_orders(patient_id, default_tests)
+        orders = await get_patient_labs(patient_id)
+    else:
+        # Migrate any existing panel rows (e.g. old 'CBC' row → individual components)
+        if await expand_existing_panels(patient_id):
+            orders = await get_patient_labs(patient_id)
+
+    return {"patient_id": patient_id, "orders": orders}
+
+
+@app.post("/queue/{patient_id}/labs/confirm")
+async def confirm_lab(patient_id: str, body: dict):
+    """Nurse accepts or rejects a suggested lab order."""
+    test_name = body.get("test_name", "")
+    action = body.get("action", "approved")  # 'approved' or 'rejected'
+    if action not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="action must be 'approved' or 'rejected'")
+    await confirm_lab_order(patient_id, test_name, action)
+    return {"patient_id": patient_id, "test_name": test_name, "status": action}
+
+
+@app.post("/queue/{patient_id}/labs/result")
+async def submit_lab_result(patient_id: str, body: dict):
+    """Nurse enters a result. Interprets against reference ranges and triggers re-score."""
+    from src.core.lab_values import interpret_result
+
+    test_name = body.get("test_name", "")
+    value_str = body.get("value", "").strip()
+    if not test_name or not value_str:
+        raise HTTPException(status_code=400, detail="test_name and value required")
+
+    interp = interpret_result(test_name, value_str)
+
+    # Persist result to DB
+    await enter_lab_result(
+        patient_id=patient_id,
+        test_name=test_name,
+        result_value=value_str,
+        is_critical=interp["is_critical"],
+        is_abnormal=interp["is_abnormal"],
+        interpretation=interp["interpretation"],
+    )
+
+    # Trigger score re-evaluation via Score Update Engine
+    lab = LabResultModel(
+        patient_id=patient_id,
+        test_name=test_name,
+        result_value=f"{value_str} — {interp['interpretation']}",
+        result_time=time.time(),
+        is_critical=interp["is_critical"],
+    )
+
+    record = await get_patient(patient_id)
+    if record is None:
+        sorted_q = await get_queue().get_sorted_queue()
+        import json as _json
+        for pr in sorted_q:
+            if pr.intake.patient_id == patient_id:
+                record = {
+                    "patient_id": pr.intake.patient_id,
+                    "arrival_time": pr.intake.arrival_time,
+                    "age_years": pr.intake.age_years,
+                    "gender": pr.intake.gender,
+                    "chief_complaint_text": pr.intake.chief_complaint.free_text_en,
+                    "chief_complaint_category": pr.intake.chief_complaint.category,
+                    "risk_score": pr.triage_score.risk_score if pr.triage_score else 50.0,
+                    "is_red": 1 if (pr.triage_score.is_red if pr.triage_score else False) else 0,
+                    "status": pr.status,
+                    "known_diagnoses": _json.dumps(pr.intake.medical_history.known_diagnoses),
+                    "additional_context": pr.intake.additional_context,
+                    "esi_level": pr.triage_score.esi_level if pr.triage_score else 3,
+                    "threshold_used": pr.triage_score.threshold_used if pr.triage_score else 85.0,
+                    "pce_scope": pr.triage_score.pce_scope if pr.triage_score else "pce_core",
+                    "assigned_doctor": pr.assigned_doctor,
+                }
+                break
+
+    score_event = None
+    if record:
+        try:
+            score_event = await update_score_on_result(lab, record, patient_load=10)
+        except Exception as exc:
+            logger.warning("Score update failed after lab result: %s", exc)
+
+    return {
+        "patient_id": patient_id,
+        "test_name": test_name,
+        "value": value_str,
+        "flag": interp["flag"],
+        "is_abnormal": interp["is_abnormal"],
+        "is_critical": interp["is_critical"],
+        "interpretation": interp["interpretation"],
+        "reference_range": interp["reference_range"],
+        "score_delta": round(score_event.delta, 1) if score_event else None,
+        "new_score": round(score_event.new_score, 1) if score_event else None,
+        "queue_reordered": score_event.queue_reordered if score_event else False,
+        "auto_assigned": score_event is not None,
+    }

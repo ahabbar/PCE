@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS patients (
     created_at REAL,
     updated_at REAL,
     disposition_prediction TEXT,
-    bed_reservation_sent INTEGER DEFAULT 0
+    bed_reservation_sent INTEGER DEFAULT 0,
+    result_count INTEGER DEFAULT 0,
+    additional_context TEXT,
+    pce_scope TEXT,
+    threshold_used REAL
 );
 
 CREATE TABLE IF NOT EXISTS investigations (

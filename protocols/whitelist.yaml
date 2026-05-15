@@ -1,286 +1,1157 @@
----
+# protocols/whitelist.yaml
+# Parallel Care Engine — Protocol Whitelist
+# Physician-authored. Agent 3 cannot order outside this file.
+
+master_approved_tests:
+
+  haematology:
+    - WBC
+    - HGB
+    - PLT
+    - Differential
+    - Blood film
+    - Reticulocyte count
+    - Group & Screen
+    - Crossmatch
+
+  biochemistry:
+    - BMP
+    - LFTs
+    - CRP
+    - Troponin POCT
+    - Troponin (lab hs)
+    - BNP / NT-proBNP
+    - D-dimer
+    - Lactate POCT
+    - Glucose POCT
+    - Blood glucose
+    - HbA1c
+    - Lipase
+    - Ammonia
+    - TFTs
+    - Magnesium
+    - Phosphate
+    - Uric acid
+    - Procalcitonin
+
+  coagulation:
+    - Coagulation (PT/APTT)
+
+  point_of_care:
+    - Blood gas (ABG/VBG)
+    - ECG 12-lead
+    - Urinalysis POCT
+    - Glucose POCT
+    - Lactate POCT
+    - Troponin POCT
+    - SpO2 continuous
+
+  microbiology:
+    - Urine culture
+    - Blood culture x2
+    - Stool culture
+    - Throat swab
+    - Wound swab
+    - Sputum culture
+    - COVID / Flu PCR
+
+  imaging_ed_ordered:
+    - CXR
+
+  requires_doctor_always:
+    - CT head
+    - CT chest
+    - CT abdomen/pelvis
+    - CT pulmonary angiography
+    - CT aorta
+    - CT urogram
+    - MRI brain
+    - Echo (formal)
+    - POCUS (bedside echo)
+    - Upper GI endoscopy
+    - Doppler ultrasound
+    - Lumbar puncture
+    - Bone marrow biopsy
+    - Joint aspiration
+    - Nephrostomy
+    - All contrast imaging
+
 protocols:
 
-  fever_infectious:
-    display_name: "Fever with infection signs"
-    keywords: ["fever", "حرارة", "febrile", "chills", "قشعريرة", "infection", "sepsis", "bacteremia"]
-    vital_flags:
-      temperature_gt: 38.0
-    auto_order:
-      - test: "CBC with differential"
-        reason: "Detect infection, assess severity, identify organism type"
-        cost_tier: low
-        timing: routine
-      - test: "CRP"
-        reason: "Inflammation marker"
-        cost_tier: low
-        timing: routine
-      - test: "Urinalysis"
-        reason: "Exclude urinary source"
-        cost_tier: low
-        timing: routine
-      - test: "Blood glucose"
-        reason: "Routine metabolic screen"
-        cost_tier: low
-        timing: routine
-    conditional:
-      - test: "Blood culture x2"
-        condition: "temperature > 38.5 OR heart_rate > 100"
-        reason: "Suspect bacteraemia"
-        cost_tier: medium
-      - test: "Procalcitonin"
-        condition: "sepsis suspected"
-        cost_tier: medium
-      - test: "CXR"
-        condition: "respiratory symptoms or cough present"
-        cost_tier: low
-      - test: "LFTs"
-        condition: "abdominal pain or jaundice"
-        cost_tier: low
-    requires_doctor:
-      - "CT scan (any)"
-      - "Lumbar puncture"
-      - "IV antibiotics decision"
-      - "Any invasive procedure"
-
-  uti_pyelonephritis:
-    display_name: "Dysuria / Flank pain / Urinary"
-    keywords: ["dysuria", "حرقة بولية", "flank pain", "ألم خاصرة", "UTI", "urinary frequency",
-               "pyelonephritis", "التهاب الكلية", "frequency", "cloudy urine"]
-    auto_order:
-      - test: "Urinalysis + microscopy"
-        reason: "Diagnose urinary infection"
-        cost_tier: low
-        timing: immediate
-      - test: "Urine culture"
-        reason: "Identify organism and sensitivity"
-        cost_tier: low
-        timing: routine
-      - test: "CBC"
-        reason: "Assess infection severity"
-        cost_tier: low
-        timing: routine
-      - test: "BMP (Creatinine + Electrolytes)"
-        reason: "Assess renal function — critical if CKD background"
-        cost_tier: low
-        timing: routine
-      - test: "CRP"
-        reason: "Inflammation marker"
-        cost_tier: low
-        timing: routine
-    conditional:
-      - test: "Blood culture x2"
-        condition: "temperature > 38.5"
-        reason: "Septicaemia risk"
-        cost_tier: medium
-      - test: "Renal Ultrasound"
-        condition: "suspected obstruction or stone"
-        cost_tier: medium
-      - test: "Beta-hCG"
-        condition: "female of reproductive age"
-        reason: "Exclude ectopic pregnancy"
-        cost_tier: low
-    requires_doctor:
-      - "CT urogram"
-      - "Nephrology consult"
-      - "IV antibiotics decision"
-      - "Urology consult"
-
   chest_pain:
-    display_name: "Chest pain / Cardiac"
-    keywords: ["chest pain", "ألم صدر", "chest tightness", "palpitations", "خفقان",
-               "diaphoresis", "تعرق", "cardiac", "قلب", "angina", "MI"]
-    vital_flags:
-      priority: "ECG within 10 minutes of arrival — ESI-2 consideration"
+    display_name: "Chest Pain"
+    keywords:
+      - chest pain
+      - chest tightness
+      - chest pressure
+      - crushing chest pain
+      - chest pain radiating to arm
+      - retrosternal pain
+      - angina
     auto_order:
       - test: "ECG 12-lead"
-        reason: "STEMI exclusion — must be done immediately"
-        cost_tier: low
+        reason: "STEMI exclusion — mandatory within 10 minutes of arrival"
         timing: immediate
-      - test: "Troponin I (high sensitivity)"
-        reason: "ACS biomarker"
         cost_tier: low
+      - test: "Troponin POCT"
+        reason: "ACS marker"
         timing: urgent
-      - test: "CBC"
-        reason: "Baseline, exclude anaemia"
         cost_tier: low
-        timing: routine
+      - test: "WBC"
+        reason: "Infection / inflammation marker"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia screen"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet count — bleeding risk before anticoagulation"
+        cost_tier: low
       - test: "BMP"
         reason: "Electrolytes + renal function"
         cost_tier: low
-        timing: routine
       - test: "CXR"
-        reason: "Pneumothorax / CHF / aortic widening"
+        reason: "Pneumothorax / CHF / aortic silhouette"
         cost_tier: low
-        timing: urgent
     conditional:
       - test: "D-dimer"
-        condition: "PE suspected (immobility, surgery, travel, pleuritic pain)"
+        condition: "PE suspected: immobility / surgery / travel / unilateral leg swelling"
         cost_tier: low
-      - test: "BNP"
-        condition: "heart failure symptoms"
+      - test: "BNP / NT-proBNP"
+        condition: "Dyspnoea associated — CHF suspected"
         cost_tier: medium
-      - test: "Repeat Troponin at 3h"
-        condition: "first troponin negative"
+      - test: "Troponin (lab hs)"
+        condition: "POCT troponin negative at 0h — serial testing required"
         cost_tier: low
-      - test: "Lactate (POCT)"
-        condition: "haemodynamic instability"
-        cost_tier: low
-        timing: immediate
-    requires_doctor:
-      - "CT pulmonary angiography"
-      - "CT aortogram"
-      - "Echocardiography"
-      - "Cardiology consult"
-      - "Thrombolytics"
-      - "Cath lab activation"
-
-  dyspnea:
-    display_name: "Shortness of breath / Dyspnea"
-    keywords: ["dyspnea", "ضيق تنفس", "shortness of breath", "breathlessness",
-               "صعوبة تنفس", "wheezing", "respiratory distress"]
-    vital_flags:
-      spo2_lt: 95
-    auto_order:
-      - test: "SpO2 continuous monitoring"
-        reason: "Oxygenation monitoring — immediate if <92%"
-        cost_tier: low
-        timing: immediate
-      - test: "ECG"
-        reason: "Arrhythmia, pulmonary hypertension, PE changes"
-        cost_tier: low
-        timing: urgent
-      - test: "CXR"
-        reason: "Pneumonia, CHF, pneumothorax, effusion"
-        cost_tier: low
-        timing: urgent
-      - test: "CBC"
-        reason: "Infection, anaemia"
-        cost_tier: low
-        timing: routine
-      - test: "BMP"
-        reason: "Renal / metabolic contribution"
-        cost_tier: low
-        timing: routine
-    conditional:
-      - test: "ABG (arterial blood gas)"
+      - test: "Blood gas (ABG/VBG)"
         condition: "SpO2 < 92% or severe respiratory distress"
         cost_tier: medium
+    requires_doctor:
+      - CT pulmonary angiography
+      - CT aorta
+      - Echo (formal)
+      - Cardiology consult
+      - Cath lab activation
+      - Thrombolytics
+    high_risk_note: "ECG must be performed and reviewed within 10 minutes of arrival. Any STEMI/LBBB pattern = immediate cardiology activation regardless of other findings."
+
+  dyspnea:
+    display_name: "Shortness of Breath / Dyspnoea"
+    keywords:
+      - dyspnoea
+      - shortness of breath
+      - breathless
+      - cannot breathe
+      - difficulty breathing
+      - respiratory distress
+      - wheezing
+      - SOB
+    auto_order:
+      - test: "SpO2 continuous"
+        reason: "Baseline and trending oxygenation"
+        timing: immediate
+        cost_tier: low
+      - test: "ECG 12-lead"
+        reason: "Cardiac cause — arrhythmia / RV strain"
         timing: urgent
-      - test: "BNP or NT-proBNP"
-        condition: "heart failure suspected"
+        cost_tier: low
+      - test: "CXR"
+        reason: "Pneumonia / CHF / pneumothorax / effusion"
+        timing: urgent
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection / pneumonia marker"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia as cause of dyspnoea"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet count baseline"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Metabolic / renal cause"
+        cost_tier: low
+    conditional:
+      - test: "BNP / NT-proBNP"
+        condition: "CHF suspected: bilateral crepitations / leg oedema / known cardiac history"
         cost_tier: medium
       - test: "D-dimer"
-        condition: "PE suspected"
+        condition: "PE suspected: pleuritic pain / immobility / risk factors"
         cost_tier: low
+      - test: "Blood gas (ABG/VBG)"
+        condition: "SpO2 < 92% or severe distress or altered mentation"
+        cost_tier: medium
+      - test: "Troponin POCT"
+        condition: "Cardiac cause suspected or chest pain associated"
+        cost_tier: low
+      - test: "CRP"
+        condition: "Infection / pneumonia suspected"
+        cost_tier: low
+    requires_doctor:
+      - CT pulmonary angiography
+      - CT chest
+      - Bronchoscopy
+      - NIV / intubation decision
+      - Pleural tap
+    high_risk_note: "SpO2 < 88% → immediate O2 + senior review. Do NOT delay O2 to obtain baseline SpO2."
+
+  fever_infectious:
+    display_name: "Fever / Infection"
+    keywords:
+      - fever
+      - high temperature
+      - chills
+      - rigors
+      - sweating
+      - infection
+      - sepsis
+      - febrile
+    auto_order:
+      - test: "WBC"
+        reason: "Leukocytosis / left shift — infection severity"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia of infection / chronic disease"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Thrombocytopenia — sepsis marker"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Inflammatory marker — infection severity"
+        cost_tier: low
+      - test: "Urinalysis POCT"
+        reason: "Exclude urinary source — most common infection in adults"
+        cost_tier: low
+      - test: "Blood glucose"
+        reason: "Hyperglycaemia in infection — diabetic ketoacidosis risk"
+        cost_tier: low
+    conditional:
+      - test: "Blood culture x2"
+        condition: "Temperature > 38.5 OR HR > 100 OR SBP < 100 — sepsis criteria"
+        cost_tier: medium
       - test: "Procalcitonin"
-        condition: "bacterial infection suspected"
+        condition: "Sepsis suspected or immunocompromised patient"
+        cost_tier: medium
+      - test: "Lactate POCT"
+        condition: "SBP < 100 OR altered mentation OR suspected septic shock"
+        cost_tier: low
+      - test: "CXR"
+        condition: "Respiratory symptoms: cough / dyspnoea / SpO2 < 95%"
+        cost_tier: low
+      - test: "LFTs"
+        condition: "Jaundice / right upper quadrant pain / liver disease history"
+        cost_tier: low
+      - test: "Blood gas (ABG/VBG)"
+        condition: "SpO2 < 92% or severely unwell"
         cost_tier: medium
     requires_doctor:
-      - "CT chest / CT-PA"
-      - "Bronchoscopy"
-      - "Non-invasive ventilation (NIV)"
-      - "Intubation"
-      - "Pulmonology consult"
+      - CT scan (any)
+      - Lumbar puncture
+      - Bone marrow biopsy
+      - Empirical antibiotics choice
+      - Source control
+    high_risk_note: "Suspected septic shock (fever + hypotension + altered mentation) → lactate + blood cultures + antibiotics within 1 hour. Time-critical."
+
+  uti_pyelonephritis:
+    display_name: "Urinary Tract Infection / Pyelonephritis"
+    keywords:
+      - dysuria
+      - burning urination
+      - frequency
+      - urinary symptoms
+      - flank pain
+      - loin pain
+      - urinary tract infection
+      - UTI
+      - kidney infection
+    auto_order:
+      - test: "Urinalysis POCT"
+        reason: "Diagnose UTI — nitrites / WBCs / bacteria"
+        cost_tier: low
+      - test: "Urine culture"
+        reason: "Identify organism and antibiotic sensitivity"
+        cost_tier: low
+      - test: "WBC"
+        reason: "Leukocytosis — infection severity"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia screen"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Thrombocytopenia — sepsis marker"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Renal function — AKI risk especially with pyelonephritis"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Inflammatory severity"
+        cost_tier: low
+    conditional:
+      - test: "Blood culture x2"
+        condition: "Temperature > 38.5 OR haemodynamic instability — bacteraemia risk"
+        cost_tier: medium
+      - test: "Lactate POCT"
+        condition: "SBP < 100 OR tachycardia + fever — urosepsis"
+        cost_tier: low
+    requires_doctor:
+      - CT urogram
+      - Renal ultrasound (obstructed kidney)
+      - Nephrology consult
+      - Urology consult
+      - IV antibiotics decision
+      - Nephrostomy
+    high_risk_note: "Fever + loin pain + hypotension = obstructed infected kidney until proven otherwise. Urological emergency. Senior review immediately."
 
   abdominal_pain:
-    display_name: "Abdominal pain (medical)"
-    keywords: ["abdominal pain", "ألم بطن", "belly pain", "stomach pain", "مغص",
-               "nausea", "غثيان", "vomiting", "قيء", "epigastric", "RUQ", "LLQ"]
+    display_name: "Abdominal Pain"
+    keywords:
+      - abdominal pain
+      - stomach pain
+      - belly pain
+      - abdo pain
+      - right lower quadrant
+      - left upper quadrant
+      - epigastric pain
+      - appendicitis
+      - pancreatitis
     auto_order:
-      - test: "CBC"
-        reason: "Infection / bleeding screen"
+      - test: "WBC"
+        reason: "Leukocytosis — infection / inflammation"
         cost_tier: low
-        timing: routine
+      - test: "HGB"
+        reason: "Anaemia from GI bleeding"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet count — bleeding risk"
+        cost_tier: low
       - test: "BMP"
-        reason: "Renal / metabolic cause"
+        reason: "Renal function + electrolytes + metabolic screen"
         cost_tier: low
-        timing: routine
+      - test: "LFTs"
+        reason: "Hepatic / biliary cause — bilirubin / transaminases"
+        cost_tier: low
+      - test: "Lipase"
+        reason: "Pancreatitis — single most useful test for epigastric pain"
+        cost_tier: low
+      - test: "Urinalysis POCT"
+        reason: "Exclude renal colic / urinary cause"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Inflammatory severity"
+        cost_tier: low
+    conditional:
+      - test: "Blood culture x2"
+        condition: "Temperature > 38.5 — peritonitis / abscess risk"
+        cost_tier: medium
+      - test: "Troponin POCT"
+        condition: "Age > 50 + epigastric pain — inferior MI can present as abdominal pain"
+        cost_tier: low
+      - test: "ECG 12-lead"
+        condition: "Age > 50 OR cardiac history — inferior MI mimicry"
+        cost_tier: low
+      - test: "Coagulation (PT/APTT)"
+        condition: "Liver disease history OR anticoagulated OR bleeding suspected"
+        cost_tier: low
+    requires_doctor:
+      - CT abdomen/pelvis
+      - Surgical consult
+      - IV analgesia
+      - Upper GI endoscopy
+      - Diagnostic laparoscopy
+    high_risk_note: "Peritonism (rigid abdomen / rebound tenderness) + fever = surgical emergency. Do not delay surgical review for imaging."
+
+  altered_consciousness:
+    display_name: "Altered Consciousness / Confusion"
+    keywords:
+      - confusion
+      - altered consciousness
+      - altered mental status
+      - delirium
+      - unresponsive
+      - drowsy
+      - GCS reduced
+      - disoriented
+      - agitation
+    auto_order:
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia — most immediately treatable cause. Test and treat simultaneously."
+        timing: immediate
+        cost_tier: low
+      - test: "ECG 12-lead"
+        reason: "Arrhythmia as cause — AF / complete heart block"
+        timing: urgent
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection as cause of delirium"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia contributing to confusion"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Thrombocytopenia — bleeding/sepsis"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Na / K / Cr — metabolic cause (hyponatraemia most common)"
+        cost_tier: low
+      - test: "Blood gas (ABG/VBG)"
+        reason: "Acid-base disturbance / CO2 retention / hypoxia"
+        timing: urgent
+        cost_tier: medium
+      - test: "Urinalysis POCT"
+        reason: "Urinary infection — common cause in elderly"
+        cost_tier: low
+    conditional:
+      - test: "Blood culture x2"
+        condition: "Temperature present OR sepsis suspected"
+        cost_tier: medium
+      - test: "Ammonia"
+        condition: "Liver disease history — hepatic encephalopathy"
+        cost_tier: medium
+      - test: "TFTs"
+        condition: "Thyroid disease history OR no obvious cause found"
+        cost_tier: medium
+      - test: "Lactate POCT"
+        condition: "Haemodynamically unstable or sepsis suspected"
+        cost_tier: low
+      - test: "CRP"
+        condition: "Infection suspected"
+        cost_tier: low
+    requires_doctor:
+      - CT head
+      - Lumbar puncture
+      - Neurology consult
+      - Psychiatry consult
+      - All sedation decisions
+    high_risk_note: "Glucose POCT must be done within 2 minutes of arrival. If low, treat immediately. Do NOT wait for lab result."
+
+  syncope:
+    display_name: "Syncope / Collapse / Blackout"
+    keywords:
+      - syncope
+      - blackout
+      - collapse
+      - fainted
+      - loss of consciousness
+      - passed out
+      - LOC
+      - near faint
+      - pre-syncope
+      - dizzy then fell
+    auto_order:
+      - test: "ECG 12-lead"
+        reason: "Arrhythmia — most dangerous cause of syncope. Mandatory immediately."
+        timing: immediate
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia mimicking syncope"
+        timing: immediate
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection as precipitant"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia as precipitant of syncope"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet baseline"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Electrolyte disturbance — hyponatraemia / hypokalaemia"
+        cost_tier: low
+    conditional:
+      - test: "Troponin POCT"
+        condition: "Age > 40 OR chest pain before syncope OR exertional syncope"
+        cost_tier: low
+      - test: "D-dimer"
+        condition: "PE suspected: dyspnoea / immobility / pleuritic pain / risk factors"
+        cost_tier: low
+      - test: "CRP"
+        condition: "Infection / fever associated"
+        cost_tier: low
+      - test: "Blood gas (ABG/VBG)"
+        condition: "SpO2 < 92% or respiratory compromise"
+        cost_tier: medium
+    requires_doctor:
+      - CT head
+      - Echo (formal)
+      - 24-hr Holter monitor
+      - Tilt-table test
+      - Implantable loop recorder
+    high_risk_note: "High-risk features requiring immediate cardiology review: syncope during exercise, syncope with palpitations, family history of sudden cardiac death, age > 65 with structural heart disease."
+
+  palpitations:
+    display_name: "Palpitations / Heart Racing"
+    keywords:
+      - palpitations
+      - heart racing
+      - heart pounding
+      - irregular heartbeat
+      - fast heart
+      - missed beats
+      - heart fluttering
+      - tachycardia
+      - arrhythmia
+    auto_order:
+      - test: "ECG 12-lead"
+        reason: "Arrhythmia diagnosis — AF / SVT / VT / WPW. Mandatory immediately."
+        timing: immediate
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia as trigger"
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection as trigger for palpitations / AF"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia as trigger for compensatory tachycardia"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet baseline"
+        cost_tier: low
+      - test: "TFTs"
+        reason: "Hyperthyroidism — very common cause of palpitations and AF"
+        cost_tier: medium
+      - test: "BMP"
+        reason: "Electrolyte abnormality — hypokalaemia / hypomagnesaemia triggers AF"
+        cost_tier: low
+    conditional:
+      - test: "Troponin POCT"
+        condition: "Chest pain or haemodynamic compromise associated"
+        cost_tier: low
+      - test: "CRP"
+        condition: "Infection / myocarditis suspected"
+        cost_tier: low
+      - test: "Blood culture x2"
+        condition: "Fever present"
+        cost_tier: medium
+    requires_doctor:
+      - Echo (formal)
+      - 24-hr Holter
+      - Cardioversion (DC or chemical)
+      - Anti-arrhythmic initiation
+    high_risk_note: "Haemodynamically unstable tachycardia (HR > 150 + SBP < 90 or chest pain) → senior review immediately. Do not wait for labs."
+
+  headache:
+    display_name: "Headache"
+    keywords:
+      - headache
+      - head pain
+      - migraine
+      - thunderclap headache
+      - worst headache of life
+      - occipital pain
+      - frontal headache
+      - cluster headache
+    auto_order:
+      - test: "WBC"
+        reason: "Infection / meningitis screen"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia as cause of headache"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Thrombocytopenia — bleeding risk if intracranial bleed suspected"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Metabolic cause — hypertension / renal"
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia presenting as headache"
+        cost_tier: low
+    conditional:
+      - test: "CRP"
+        condition: "Fever present OR neck stiffness OR meningism"
+        cost_tier: low
+      - test: "Blood culture x2"
+        condition: "Temperature > 38.5 AND neck stiffness — meningitis until proven otherwise"
+        cost_tier: medium
+      - test: "Coagulation (PT/APTT)"
+        condition: "Anticoagulated patient OR suspected intracranial bleed"
+        cost_tier: low
+      - test: "CXR"
+        condition: "CO2 poisoning suspected: multiple patients in enclosed space"
+        cost_tier: low
+    requires_doctor:
+      - CT head
+      - Lumbar puncture (after CT)
+      - Neurology consult
+      - Ophthalmology (raised ICP)
+    high_risk_note: "Sudden onset severe headache ('thunderclap' / 'worst ever') = subarachnoid haemorrhage until proven otherwise. CT head + LP mandatory even if CT normal."
+
+  weakness_fatigue:
+    display_name: "Weakness / Fatigue / Lethargy"
+    keywords:
+      - weakness
+      - fatigue
+      - tired
+      - lethargy
+      - malaise
+      - no energy
+      - feeling unwell
+      - generally unwell
+      - run down
+      - exhausted
+      - collapse
+    auto_order:
+      - test: "WBC"
+        reason: "Occult infection or haematological cause of fatigue"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia — most common cause of fatigue. Critical value."
+        cost_tier: low
+      - test: "PLT"
+        reason: "Pancytopenia / haematological cause of fatigue"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Renal / metabolic / electrolyte cause"
+        cost_tier: low
+      - test: "TFTs"
+        reason: "Hypothyroidism — extremely common and frequently missed"
+        cost_tier: medium
+      - test: "LFTs"
+        reason: "Hepatic cause — jaundice / hepatitis"
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia / hyperglycaemia"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Occult infection or inflammatory condition"
+        cost_tier: low
+    conditional:
+      - test: "ECG 12-lead"
+        condition: "Age > 65 OR cardiac history OR arrhythmia suspected"
+        cost_tier: low
+      - test: "Blood film"
+        condition: "Haemolytic anaemia suspected OR abnormal blood count with unexplained features"
+        cost_tier: low
+      - test: "Blood culture x2"
+        condition: "Fever present"
+        cost_tier: medium
+      - test: "Troponin POCT"
+        condition: "Cardiac cause suspected OR exertional component"
+        cost_tier: low
+    requires_doctor:
+      - CT (any)
+      - MRI brain
+      - Bone marrow biopsy
+      - Haematology / Oncology consult
+
+  gi_bleeding:
+    display_name: "GI Bleeding / Haematemesis / Melaena"
+    keywords:
+      - haematemesis
+      - vomiting blood
+      - blood in vomit
+      - melaena
+      - black stool
+      - rectal bleeding
+      - bloody diarrhoea
+      - GI bleed
+      - rectal bleed
+    auto_order:
+      - test: "WBC"
+        reason: "Infection / inflammatory marker"
+        timing: urgent
+        cost_tier: low
+      - test: "HGB"
+        reason: "Haemoglobin — quantify blood loss. Critical value."
+        timing: urgent
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet count — bleeding risk; transfusion threshold"
+        timing: urgent
+        cost_tier: low
+      - test: "Coagulation (PT/APTT)"
+        reason: "Coagulopathy — anticoagulant use / liver disease"
+        timing: urgent
+        cost_tier: low
+      - test: "BMP"
+        reason: "Urea elevated in upper GI bleed — urea:creatinine ratio diagnostic"
+        cost_tier: low
+      - test: "LFTs"
+        reason: "Liver disease / portal hypertension source"
+        cost_tier: low
+    conditional:
+      - test: "Blood culture x2"
+        condition: "Fever present — infective colitis"
+        cost_tier: medium
+      - test: "Stool culture"
+        condition: "Infective cause suspected: recent travel / contacts / outbreak"
+        cost_tier: low
+      - test: "Blood film"
+        condition: "HUS / TTP suspected: thrombocytopenia + anaemia + renal failure"
+        cost_tier: low
+    requires_doctor:
+      - Upper GI endoscopy
+      - Surgical consult
+      - CT abdomen/pelvis
+      - Blood transfusion decision
+      - IV PPI / octreotide
+    high_risk_note: "Active haematemesis with haemodynamic instability = immediate resuscitation + upper GI bleed team activation. 2x large-bore IV, Group & Screen, senior review."
+
+  leg_swelling_dvt:
+    display_name: "Leg Swelling / DVT / Peripheral Oedema"
+    keywords:
+      - leg swelling
+      - DVT
+      - deep vein thrombosis
+      - calf pain
+      - calf swelling
+      - ankle swelling
+      - peripheral oedema
+      - swollen leg
+      - leg clot
+    auto_order:
+      - test: "D-dimer"
+        reason: "DVT / PE screen — first investigation. Negative excludes if low pre-test probability."
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection / cellulitis cause of swelling"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia baseline before anticoagulation"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet count — required before anticoagulation"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Renal cause of bilateral oedema — nephrotic syndrome"
+        cost_tier: low
+      - test: "BNP / NT-proBNP"
+        reason: "Cardiac cause of bilateral leg oedema — heart failure"
+        cost_tier: medium
+    conditional:
+      - test: "ECG 12-lead"
+        condition: "Dyspnoea associated OR PE suspected"
+        cost_tier: low
+      - test: "Troponin POCT"
+        condition: "PE suspected + chest pain OR haemodynamic compromise"
+        cost_tier: low
+      - test: "LFTs"
+        condition: "Bilateral oedema — hepatic cause / hypoalbuminaemia"
+        cost_tier: low
+      - test: "CRP"
+        condition: "Cellulitis / infection of swollen leg"
+        cost_tier: low
+    requires_doctor:
+      - CT pulmonary angiography
+      - Doppler ultrasound (legs)
+      - Echo (formal)
+      - Anticoagulation initiation
+
+  hypertensive_emergency:
+    display_name: "Hypertensive Emergency"
+    keywords:
+      - hypertensive emergency
+      - high blood pressure
+      - hypertension
+      - BP very high
+      - blood pressure crisis
+      - malignant hypertension
+      - hypertensive urgency
+    auto_order:
+      - test: "ECG 12-lead"
+        reason: "End-organ cardiac effect — LVH / strain / ischaemia. Immediate."
+        timing: immediate
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection screen — possible precipitant"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Haemolytic anaemia — microangiopathic haemolysis"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Thrombocytopenia — microangiopathic haemolysis (TMA)"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Renal end-organ damage — creatinine is key. AKI in hypertensive emergency."
+        cost_tier: low
+      - test: "Urinalysis POCT"
+        reason: "Proteinuria / haematuria — renal involvement / pre-eclampsia"
+        cost_tier: low
+    conditional:
+      - test: "Troponin POCT"
+        condition: "Chest pain associated — ACS precipitated by hypertension"
+        cost_tier: low
+      - test: "BNP / NT-proBNP"
+        condition: "Dyspnoea / acute pulmonary oedema associated"
+        cost_tier: medium
+      - test: "Blood film"
+        condition: "HUS / TTP suspected: thrombocytopenia"
+        cost_tier: low
+      - test: "LFTs"
+        condition: "Pre-eclampsia suspected in pregnant or recently postpartum women"
+        cost_tier: low
+    requires_doctor:
+      - CT head
+      - CT aorta
+      - Echo (formal)
+      - IV antihypertensive initiation
+    high_risk_note: "SBP > 180 + ANY of: headache, visual change, chest pain, neurological signs = hypertensive emergency. Target BP reduction of 25% over 1-2 hours with IV agent."
+
+  diabetic_emergency:
+    display_name: "Diabetic Emergency (DKA / HHS / Hypoglycaemia)"
+    keywords:
+      - DKA
+      - diabetic ketoacidosis
+      - HHS
+      - hyperglycaemic hyperosmolar
+      - hypoglycaemia
+      - blood sugar high
+      - blood sugar low
+      - diabetic emergency
+      - hyperglycaemia
+      - glucose very high
+      - glucose very low
+      - insulin overdose
+    auto_order:
+      - test: "Glucose POCT"
+        reason: "Immediate glucose — acts as first diagnostic step. Test and treat simultaneously."
+        timing: immediate
+        cost_tier: low
+      - test: "Blood gas (ABG/VBG)"
+        reason: "pH / bicarbonate — acid-base status is diagnostic for DKA"
+        timing: urgent
+        cost_tier: medium
+      - test: "BMP"
+        reason: "Potassium is critical — K+ falls rapidly in DKA treatment. Monitor closely."
+        timing: urgent
+        cost_tier: low
+      - test: "WBC"
+        reason: "Precipitating infection — leukocytosis in DKA"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia / dehydration baseline"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet baseline"
+        cost_tier: low
+      - test: "Urinalysis POCT"
+        reason: "Ketonuria + glycosuria — confirms DKA"
+        cost_tier: low
+    conditional:
+      - test: "Blood culture x2"
+        condition: "Fever OR infection suspected as precipitant"
+        cost_tier: medium
+      - test: "ECG 12-lead"
+        condition: "K+ abnormal (hyperkalaemia causes peaked T waves / arrhythmia) OR cardiac history"
+        cost_tier: low
+      - test: "HbA1c"
+        condition: "Newly diagnosed diabetes OR poorly controlled — baseline glycaemic control"
+        cost_tier: medium
+      - test: "Magnesium"
+        condition: "DKA — Mg depleted with K+. Replace both."
+        cost_tier: low
+      - test: "Phosphate"
+        condition: "DKA — Phosphate depletion common. Check if prolonged DKA."
+        cost_tier: low
+      - test: "CRP"
+        condition: "Infection as DKA precipitant suspected"
+        cost_tier: low
+    requires_doctor:
+      - Insulin infusion protocol initiation
+      - IV potassium replacement rate
+      - IV fluid volume in cardiac/renal disease
+      - Diabetes team referral
+    high_risk_note: "Hypoglycaemia: treat FIRST (IV dextrose or IM glucagon), then investigate cause. DKA: K+ must be > 3.5 before starting insulin — check and replace first."
+
+  renal_colic:
+    display_name: "Renal Colic / Flank Pain"
+    keywords:
+      - renal colic
+      - kidney stone
+      - loin pain
+      - ureteric colic
+      - colicky flank pain
+      - stone
+      - ureterolithiasis
+      - nephrolithiasis
+    auto_order:
+      - test: "Urinalysis POCT"
+        reason: "Haematuria — present in 80-90% of renal colic. Also detects infection."
+        cost_tier: low
+      - test: "BMP"
+        reason: "Renal function — hydronephrosis risk. Creatinine baseline before imaging."
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection — especially if fever (obstructed infected kidney)"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia / haematuria-related blood loss"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet baseline"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Infection indicator"
+        cost_tier: low
+    conditional:
+      - test: "Urine culture"
+        condition: "Urinalysis shows infection signs: nitrites / WBCs"
+        cost_tier: low
+      - test: "Blood culture x2"
+        condition: "Fever > 38.5 — obstructed infected kidney = emergency. Cultures before antibiotics."
+        cost_tier: medium
+      - test: "Lactate POCT"
+        condition: "Haemodynamically compromised + fever — urosepsis"
+        cost_tier: low
+    requires_doctor:
+      - CT urogram
+      - Renal ultrasound (if CT unavailable)
+      - Urology consult
+      - Nephrostomy (obstructed infected kidney)
+      - IV analgesia
+    high_risk_note: "Fever + loin pain + obstructed kidney on imaging = infected hydronephrosis — urological emergency requiring urgent drainage. Antibiotics alone are insufficient."
+
+  vomiting_nausea:
+    display_name: "Vomiting / Nausea"
+    keywords:
+      - vomiting
+      - nausea
+      - persistent vomiting
+      - cannot keep fluids down
+      - retching
+      - dry heaving
+    auto_order:
+      - test: "BMP"
+        reason: "Electrolytes — hypokalaemia / hyponatraemia from vomiting. Dehydration."
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection — gastroenteritis / occult source"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia / haematemesis screen"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet baseline"
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia — especially in diabetics who cannot eat"
+        cost_tier: low
       - test: "LFTs"
         reason: "Hepatic / biliary cause"
         cost_tier: low
-        timing: routine
       - test: "Lipase"
-        reason: "Pancreatitis"
+        reason: "Pancreatitis presenting primarily as vomiting"
         cost_tier: low
-        timing: routine
-      - test: "Urinalysis"
-        reason: "Renal colic / UTI"
+    conditional:
+      - test: "Blood gas (ABG/VBG)"
+        condition: "Severe metabolic alkalosis suspected OR significantly unwell"
+        cost_tier: medium
+      - test: "Urinalysis POCT"
+        condition: "Renal or urinary cause suspected"
         cost_tier: low
-        timing: routine
+      - test: "ECG 12-lead"
+        condition: "Age > 50 — inferior MI can present primarily as nausea/vomiting"
+        cost_tier: low
+      - test: "Troponin POCT"
+        condition: "Age > 50 with vomiting and diaphoresis — inferior MI"
+        cost_tier: low
       - test: "CRP"
-        reason: "Inflammation marker"
+        condition: "Infection suspected"
         cost_tier: low
-        timing: routine
-    conditional:
-      - test: "Beta-hCG"
-        condition: "female of reproductive age"
-        reason: "Ectopic pregnancy exclusion — mandatory"
-        cost_tier: low
-        timing: urgent
-      - test: "Abdominal Ultrasound"
-        condition: "biliary, renal, or gynaecological cause suspected"
-        cost_tier: medium
-      - test: "Lactate (POCT)"
-        condition: "haemodynamic instability or suspected ischaemia"
-        cost_tier: low
-        timing: immediate
     requires_doctor:
-      - "CT abdomen/pelvis"
-      - "Surgical consult"
-      - "IV analgesia"
-      - "Endoscopy"
-      - "Gynaecology consult"
+      - CT abdomen
+      - Upper GI endoscopy
+      - IV anti-emetics in pregnancy (specialist review)
+    high_risk_note: "Vomiting + diaphoresis + age > 50 = inferior MI until proven otherwise. ECG mandatory."
 
-  altered_consciousness:
-    display_name: "Confusion / Altered mental status"
-    keywords: ["confusion", "تشوش", "altered consciousness", "اضطراب وعي", "drowsy",
-               "unresponsive", "disoriented", "GCS reduced", "lethargy", "ضعف عام مع تشوش"]
-    vital_flags:
-      priority: "Glucose POCT immediately — before anything else"
+  rash:
+    display_name: "Rash / Skin Lesion"
+    keywords:
+      - rash
+      - skin rash
+      - urticaria
+      - hives
+      - cellulitis
+      - erythema
+      - petechiae
+      - purpura
+      - skin lesion
+      - dermatitis
+      - eczema flare
     auto_order:
-      - test: "Blood glucose (fingerstick POCT)"
-        reason: "Hypoglycaemia is immediately reversible — highest priority"
+      - test: "WBC"
+        reason: "Allergic response (eosinophilia) / infection"
         cost_tier: low
-        timing: immediate
-      - test: "ECG"
-        reason: "Arrhythmia causing haemodynamic compromise"
+      - test: "HGB"
+        reason: "Anaemia baseline"
         cost_tier: low
-        timing: urgent
-      - test: "CBC"
-        reason: "Infection, anaemia"
+      - test: "PLT"
+        reason: "Thrombocytopenia — petechiae / DIC / meningococcaemia"
         cost_tier: low
-        timing: routine
-      - test: "BMP (Na, K, Cr, Glucose)"
-        reason: "Metabolic cause — hypo/hypernatraemia, uraemia, hyperosmolar"
+      - test: "CRP"
+        reason: "Bacterial vs viral differentiation"
         cost_tier: low
-        timing: urgent
-      - test: "ABG"
-        reason: "Acid-base status — CO2 retention, metabolic acidosis"
-        cost_tier: medium
-        timing: urgent
-      - test: "Urinalysis"
-        reason: "Urinary sepsis source"
+      - test: "Glucose POCT"
+        reason: "Diabetic skin infection screening"
         cost_tier: low
-        timing: routine
     conditional:
-      - test: "Ammonia"
-        condition: "hepatic encephalopathy suspected (liver disease history)"
+      - test: "Blood culture x2"
+        condition: "Fever > 38.5 OR toxic appearance — bacteraemia / septicaemia"
         cost_tier: medium
-      - test: "TSH"
-        condition: "thyroid disease history or myxoedema suspected"
+      - test: "Coagulation (PT/APTT)"
+        condition: "Petechiae or purpura — DIC / meningococcaemia"
+        cost_tier: low
+      - test: "Uric acid"
+        condition: "Gout suspected: hot swollen joint + tophi + hyperuricaemia history"
+        cost_tier: low
+      - test: "CXR"
+        condition: "Systemic sarcoidosis / lymphoma presenting with rash"
+        cost_tier: low
+    requires_doctor:
+      - Skin biopsy
+      - Dermatology consult
+      - Ophthalmology (uveitis / episcleritis)
+    high_risk_note: "Non-blanching petechiae/purpura in a febrile patient = meningococcal septicaemia until proven otherwise. IV benzylpenicillin immediately."
+
+  joint_pain:
+    display_name: "Joint Pain / Arthritis"
+    keywords:
+      - joint pain
+      - arthritis
+      - swollen joint
+      - hot joint
+      - gout
+      - arthralgia
+      - joint swelling
+      - monoarthritis
+      - polyarthritis
+    auto_order:
+      - test: "WBC"
+        reason: "Leukocytosis — septic arthritis / inflammatory cause"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia in chronic inflammatory arthritis"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Reactive thrombocytosis in inflammation"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Key for septic arthritis vs gout vs inflammatory. High in septic."
+        cost_tier: low
+      - test: "BMP"
+        reason: "Renal function — gout management + NSAIDs risk"
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Diabetes — septic arthritis risk and gout association"
+        cost_tier: low
+    conditional:
+      - test: "Uric acid"
+        condition: "Gout suspected: podagra / tophi / previous episodes"
+        cost_tier: low
+      - test: "Blood culture x2"
+        condition: "Fever present OR septic arthritis suspected"
+        cost_tier: medium
+      - test: "Urinalysis POCT"
+        condition: "Reactive arthritis suspected: urethritis / GI infection precedent"
+        cost_tier: low
+      - test: "CXR"
+        condition: "Sarcoidosis suspected: bilateral ankle arthritis + erythema nodosum"
+        cost_tier: low
+    requires_doctor:
+      - Joint aspiration
+      - Rheumatology consult
+      - Orthopaedic consult
+      - IV antibiotics (septic arthritis)
+    high_risk_note: "Hot, swollen, single joint + fever = septic arthritis until proven otherwise. Joint aspiration is mandatory before antibiotics."
+
+  psychiatric_emergency:
+    display_name: "Psychiatric Emergency / Behavioural Disturbance"
+    keywords:
+      - suicidal ideation
+      - self-harm
+      - overdose
+      - psychiatric emergency
+      - aggressive
+      - psychosis
+      - hallucinations
+      - mental health crisis
+      - behavioural disturbance
+      - agitation
+      - threatening behaviour
+    auto_order:
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia causing acute behavioural change — must exclude first"
+        timing: immediate
+        cost_tier: low
+      - test: "WBC"
+        reason: "Infection — organic cause of behavioural disturbance"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Anaemia — organic cause"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Platelet baseline"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Metabolic cause — electrolytes / renal / hepatic"
+        cost_tier: low
+      - test: "Urinalysis POCT"
+        reason: "Urinary infection causing delirium in elderly"
+        cost_tier: low
+    conditional:
+      - test: "Blood gas (ABG/VBG)"
+        condition: "CO2 retention / hypoxia causing confusion"
         cost_tier: medium
       - test: "Blood culture x2"
-        condition: "fever present"
+        condition: "Fever present — organic cause must be excluded"
         cost_tier: medium
-      - test: "Lactate (POCT)"
-        condition: "sepsis suspected"
+      - test: "TFTs"
+        condition: "Thyroid storm / hypothyroidism suspected"
+        cost_tier: medium
+      - test: "ECG 12-lead"
+        condition: "QTc prolongation risk if antipsychotic to be given"
         cost_tier: low
-        timing: immediate
+      - test: "Troponin POCT"
+        condition: "Overdose with cardiac toxicity (tricyclics / antipsychotics)"
+        cost_tier: low
+      - test: "CRP"
+        condition: "Occult infection"
+        cost_tier: low
     requires_doctor:
-      - "CT head"
-      - "Lumbar puncture"
-      - "Neurology consult"
-      - "Psychiatry consult"
-      - "Naloxone (opioid reversal)"
-      - "Intubation"
+      - CT head (new onset psychosis / organic cause suspected)
+      - Toxicology consult
+      - Psychiatry consult
+      - All sedation / restraint decisions
+    high_risk_note: "Always exclude organic cause before attributing to primary psychiatric illness. A first episode of psychosis in an elderly patient is organic until proven otherwise."
+
+  general_medical:
+    display_name: "General Medical Assessment"
+    keywords: []
+    auto_order:
+      - test: "WBC"
+        reason: "Universal infection / inflammation screen"
+        cost_tier: low
+      - test: "HGB"
+        reason: "Universal anaemia screen"
+        cost_tier: low
+      - test: "PLT"
+        reason: "Universal platelet baseline"
+        cost_tier: low
+      - test: "BMP"
+        reason: "Metabolic + renal + electrolyte baseline"
+        cost_tier: low
+      - test: "Glucose POCT"
+        reason: "Hypoglycaemia / hyperglycaemia — immediately treatable"
+        cost_tier: low
+      - test: "CRP"
+        reason: "Inflammation / infection screen"
+        cost_tier: low
+    conditional:
+      - test: "ECG 12-lead"
+        condition: "Age > 50 OR any cardiac symptom OR arrhythmia suspected"
+        cost_tier: low
+      - test: "Urinalysis POCT"
+        condition: "Any urinary symptom OR systemic infection suspected"
+        cost_tier: low
+      - test: "LFTs"
+        condition: "Jaundice / alcohol history / hepatic cause suspected"
+        cost_tier: low
+      - test: "TFTs"
+        condition: "Fatigue / weight change / thyroid disease history"
+        cost_tier: medium
+    requires_doctor:
+      - All imaging (CT/MRI/formal ultrasound)
+      - All specialist consults
+      - All invasive procedures
+    high_risk_note: "Fallback protocol — minimum safe workup. Attending physician must confirm appropriateness for actual presentation."

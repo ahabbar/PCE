@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "id": "case_001",
+      "chief_complaint": "fever and flank pain for 2 days",
+      "age": 34,
+      "gender": "female",
+      "vitals": {"hr": 98, "sbp": 118, "temp": 38.6, "spo2": 97},
+      "comorbidities": "CKD stage 2",
+      "actual_workup": ["UA", "Urine culture", "CBC", "BMP", "CRP"],
+      "actual_diagnosis": "Pyelonephritis + AKI",
+      "actual_disposition": "admit",
+      "score_changed_during_wait": true,
+      "escalation_finding": "Creatinine 1.9 (baseline 1.2)"
+    },
+    {
+      "id": "case_002",
+      "chief_complaint": "chest pain and diaphoresis, onset 1 hour ago",
+      "age": 62,
+      "gender": "male",
+      "vitals": {"hr": 104, "sbp": 92, "temp": 36.8, "spo2": 93},
+      "comorbidities": "Hypertension, Hyperlipidaemia",
+      "actual_workup": ["ECG", "Troponin", "CBC", "BMP", "CXR"],
+      "actual_diagnosis": "NSTEMI",
+      "actual_disposition": "icu",
+      "score_changed_during_wait": false,
+      "escalation_finding": "Troponin 0.08 elevated"
+    },
+    {
+      "id": "case_003",
+      "chief_complaint": "mild dysuria, no fever, no systemic symptoms",
+      "age": 27,
+      "gender": "female",
+      "vitals": {"hr": 74, "sbp": 116, "temp": 36.7, "spo2": 99},
+      "comorbidities": "None",
+      "actual_workup": ["UA"],
+      "actual_diagnosis": "Uncomplicated UTI",
+      "actual_disposition": "discharge",
+      "score_changed_during_wait": false,
+      "escalation_finding": null
+    },
+    {
+      "id": "case_004",
+      "chief_complaint": "shortness of breath and bilateral leg swelling for 3 days",
+      "age": 71,
+      "gender": "male",
+      "vitals": {"hr": 94, "sbp": 148, "temp": 37.1, "spo2": 89},
+      "comorbidities": "Heart failure, COPD",
+      "actual_workup": ["ECG", "CXR", "CBC", "BMP", "BNP"],
+      "actual_diagnosis": "Acute decompensated heart failure",
+      "actual_disposition": "admit",
+      "score_changed_during_wait": true,
+      "escalation_finding": "BNP 2400"
+    },
+    {
+      "id": "case_005",
+      "chief_complaint": "confusion and weakness since this morning, known diabetic",
+      "age": 78,
+      "gender": "female",
+      "vitals": {"hr": 110, "sbp": 98, "temp": 38.9, "spo2": 92},
+      "comorbidities": "Type 2 Diabetes, CKD",
+      "actual_workup": ["Glucose POCT", "CBC", "BMP", "Blood culture", "CXR"],
+      "actual_diagnosis": "Sepsis secondary to pneumonia",
+      "actual_disposition": "icu",
+      "score_changed_during_wait": false,
+      "escalation_finding": "Lactate 4.2"
+    }
+  ]
+}

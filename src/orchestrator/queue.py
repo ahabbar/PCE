@@ -79,11 +79,40 @@ class QueueManager:
                     red_flag=r.red_flag,
                     workup=r.workup,
                     status="assigned",
+                    assigned_doctor=doctor_name,
+                    result_count=r.result_count,
                 )
 
     async def discharge(self, patient_id: str) -> None:
         async with self._lock:
             self._patients.pop(patient_id, None)
+
+    async def clear_all(self) -> None:
+        async with self._lock:
+            self._patients.clear()
+
+    async def increment_result_count(self, patient_id: str) -> tuple[int, str | None]:
+        """Returns (new_result_count, current_assigned_doctor)."""
+        async with self._lock:
+            if patient_id not in self._patients:
+                return 0, None
+            r = self._patients[patient_id]
+            new_count = r.result_count + 1
+            self._patients[patient_id] = PatientRecord(
+                intake=r.intake,
+                esi_result=r.esi_result,
+                triage_score=r.triage_score,
+                red_flag=r.red_flag,
+                workup=r.workup,
+                status=r.status,
+                assigned_doctor=r.assigned_doctor,
+                result_count=new_count,
+            )
+            return new_count, r.assigned_doctor
+
+    async def add_patient_record(self, record: PatientRecord) -> None:
+        async with self._lock:
+            self._patients[record.intake.patient_id] = record
 
     async def queue_depth(self) -> int:
         async with self._lock:

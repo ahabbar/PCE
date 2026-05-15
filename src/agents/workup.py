@@ -103,22 +103,15 @@ async def run_preemptive_workup(
             reasoning="ESI-1: Resus team manages workup",
         )
 
-    # Match protocol
+    # Match protocol — fallback to general_medical if nothing matches
     protocol_key = whitelist.match(intake.chief_complaint.free_text_en)
     if protocol_key is None:
-        # Fallback to category
         category = intake.chief_complaint.category
         protocol_key = whitelist.match(category)
-
     if protocol_key is None:
-        logger.info("patient=%s no matching protocol", intake.patient_id[:8])
-        return WorkupPlan(
-            patient_id=intake.patient_id,
-            protocol_key="unknown",
-            orders=[],
-            deferred_to_doctor=[],
-            reasoning="No matching protocol found",
-        )
+        protocol_key = "general_medical"
+        logger.info("patient=%s no protocol match — applying general_medical fallback",
+                    intake.patient_id[:8])
 
     orders: list[OrderItem] = []
 

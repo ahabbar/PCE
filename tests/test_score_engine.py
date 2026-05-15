@@ -62,6 +62,13 @@ async def test_reconstruct_intake_from_record():
     assert intake.age_years == 34
 
 
+def _setup_mock_queue(mock_queue, update_return: bool):
+    q = mock_queue.return_value
+    q.update_score = AsyncMock(return_value=update_return)
+    q.increment_result_count = AsyncMock(return_value=(1, None))
+    q.assign_doctor = AsyncMock()
+
+
 @pytest.mark.asyncio
 async def test_threshold_crossed_detected():
     record = make_record(risk_score=78.0, is_red=False)
@@ -69,8 +76,9 @@ async def test_threshold_crossed_detected():
 
     with patch("src.orchestrator.score_engine.run_triage_score", new=AsyncMock(return_value=mock_score)), \
          patch("src.orchestrator.score_engine.log_agent_action", new=AsyncMock()), \
-         patch("src.orchestrator.score_engine.get_queue") as mock_queue:
-        mock_queue.return_value.update_score = AsyncMock(return_value=True)
+         patch("src.orchestrator.score_engine.get_queue") as mock_queue, \
+         patch("src.orchestrator.score_engine.get_load_balancer"):
+        _setup_mock_queue(mock_queue, True)
         event = await update_score_on_result(make_lab(is_critical=False), record)
 
     assert event is not None
@@ -86,8 +94,9 @@ async def test_small_delta_no_reorder():
 
     with patch("src.orchestrator.score_engine.run_triage_score", new=AsyncMock(return_value=mock_score)), \
          patch("src.orchestrator.score_engine.log_agent_action", new=AsyncMock()), \
-         patch("src.orchestrator.score_engine.get_queue") as mock_queue:
-        mock_queue.return_value.update_score = AsyncMock(return_value=False)
+         patch("src.orchestrator.score_engine.get_queue") as mock_queue, \
+         patch("src.orchestrator.score_engine.get_load_balancer"):
+        _setup_mock_queue(mock_queue, False)
         event = await update_score_on_result(make_lab(is_critical=False), record)
 
     assert event is not None
@@ -102,8 +111,9 @@ async def test_queue_reorders_when_delta_large():
 
     with patch("src.orchestrator.score_engine.run_triage_score", new=AsyncMock(return_value=mock_score)), \
          patch("src.orchestrator.score_engine.log_agent_action", new=AsyncMock()), \
-         patch("src.orchestrator.score_engine.get_queue") as mock_queue:
-        mock_queue.return_value.update_score = AsyncMock(return_value=True)
+         patch("src.orchestrator.score_engine.get_queue") as mock_queue, \
+         patch("src.orchestrator.score_engine.get_load_balancer"):
+        _setup_mock_queue(mock_queue, True)
         event = await update_score_on_result(make_lab(is_critical=False), record)
 
     assert event is not None

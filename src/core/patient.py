@@ -251,6 +251,8 @@ class PatientRecord(BaseModel):
     workup: Optional[WorkupPlan] = None
     status: Literal["waiting", "workup", "results", "assigned", "discharged"] = "waiting"
     arrival_time: float = 0.0
+    assigned_doctor: Optional[str] = None
+    result_count: int = 0
 
     def model_post_init(self, __context: Any) -> None:
         if self.arrival_time == 0.0:

@@ -1,10 +1,39 @@
+# Virtual environments
 venv/
+env/
+.venv/
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.env
-*.db
-data/cases/real_*.json
-.DS_Store
-.pytest_cache/
 *.egg-info/
+
+# Environment / secrets
+.env
+.env.local
+
+# Database (runtime data — recreated on deploy)
+*.db
+*.sqlite
+*.sqlite3
+data/cases/real_*.json
+
+# Logs
+logs/
+*.log
+
+# Test / cache
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Streamlit cache
+.streamlit/cache/
