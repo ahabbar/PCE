@@ -19,6 +19,16 @@ API_URL = os.environ.get("PCE_API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="PCE — Parallel Care Engine", layout="wide")
 
+
+@st.cache_data(ttl=2, show_spinner=False)
+def _api_get_json(path: str, timeout: int = 10):
+    """Cached GET to dedupe identical requests within a 2s window across reruns."""
+    try:
+        r = requests.get(f"{API_URL}{path}", timeout=timeout)
+        return r.status_code, r.json() if r.status_code == 200 else None
+    except Exception as exc:
+        return 0, {"error": str(exc)}
+
 # ── Dashboard styling: compact, with per-tab internal scroll containers ──────
 st.markdown("""
 <style>
@@ -765,7 +775,8 @@ with tab1:
 
 # ── Tab 2: Live Queue ─────────────────────────────────────────────────────────
 
-with tab2:
+@st.fragment
+def _render_live_queue_tab() -> None:
     st.subheader("Live Patient Queue")
     st.error(
         "ESI-1 (Immediate) patients are directed to the Resuscitation Bay and EXCLUDED from this queue. "
@@ -773,20 +784,16 @@ with tab2:
         icon="🚨",
     )
     if st.button("Refresh", key="queue_refresh"):
-        st.rerun()
+        st.cache_data.clear()
+        st.rerun(scope="fragment")
 
-    try:
-        resp = requests.get(f"{API_URL}/queue", timeout=10)
-        if resp.status_code != 200:
-            st.warning(f"Queue API returned {resp.status_code}")
-            st.stop()
-        queue_data = resp.json()
-    except requests.exceptions.ConnectionError:
-        st.warning("API server not running. Start with: uvicorn src.api.server:app --port 8000")
-        st.stop()
-    except Exception as exc:
-        st.warning(f"Could not fetch queue: {exc}")
-        st.stop()
+    status, queue_data = _api_get_json("/queue", timeout=10)
+    if status != 200 or queue_data is None:
+        if status == 0:
+            st.warning(f"API unreachable: {(queue_data or {}).get('error', 'connection error')}")
+        else:
+            st.warning(f"Queue API returned {status}")
+        return
 
     stat1, stat2, stat3 = st.columns(3)
     stat1.metric("Total Patients", queue_data["total"])
@@ -824,7 +831,7 @@ with tab2:
                                  use_container_width=True,
                                  disabled=is_sel):
                         st.session_state[sel_key] = pt["patient_id"]
-                        st.rerun()
+                        st.rerun(scope="fragment")
 
         with detail_col:
             pt = next((p for p in patients if p["patient_id"] == st.session_state[sel_key]), patients[0])
@@ -853,43 +860,45 @@ with tab2:
             st.markdown(f"- {test}: {count} patients")
 
     with st.expander("Doctor Availability", expanded=False):
-        try:
-            dr_resp = requests.get(f"{API_URL}/doctors", timeout=5)
-            if dr_resp.status_code == 200:
-                doctors = dr_resp.json().get("doctors", [])
-                if doctors:
-                    assigned_doctors = {
-                        pt["assigned_doctor"]
-                        for pt in patients
-                        if pt.get("assigned_doctor")
-                    }
-                    cols = st.columns(min(len(doctors), 5))
-                    for i, d in enumerate(doctors):
-                        busy = d["name"] in assigned_doctors
-                        role_label = d["role"].replace("_", " ").title()
-                        with cols[i % 5]:
-                            if busy:
-                                pt_name = next(
-                                    (pt["patient_id"] for pt in patients
-                                     if pt.get("assigned_doctor") == d["name"]), ""
-                                )
-                                st.error(f"🔴 **{d['name']}**\n\n{pt_name}")
-                            else:
-                                st.success(f"🟢 **{d['name']}**\n\nAvailable")
-                            st.caption(role_label)
-                else:
-                    st.info("No doctors configured.")
+        dr_status, dr_data = _api_get_json("/doctors", timeout=5)
+        if dr_status == 200 and dr_data:
+            doctors = dr_data.get("doctors", [])
+            if doctors:
+                assigned_doctors = {
+                    pt["assigned_doctor"]
+                    for pt in patients
+                    if pt.get("assigned_doctor")
+                }
+                cols = st.columns(min(len(doctors), 5))
+                for i, d in enumerate(doctors):
+                    busy = d["name"] in assigned_doctors
+                    role_label = d["role"].replace("_", " ").title()
+                    with cols[i % 5]:
+                        if busy:
+                            pt_name = next(
+                                (pt["patient_id"] for pt in patients
+                                 if pt.get("assigned_doctor") == d["name"]), ""
+                            )
+                            st.error(f"🔴 **{d['name']}**\n\n{pt_name}")
+                        else:
+                            st.success(f"🟢 **{d['name']}**\n\nAvailable")
+                        st.caption(role_label)
             else:
-                st.warning("Could not fetch doctor data.")
-        except requests.exceptions.ConnectionError:
+                st.info("No doctors configured.")
+        elif dr_status == 0:
             st.warning("API server offline — doctor load unavailable.")
-        except Exception as exc:
-            st.warning(f"Doctor load error: {exc}")
+        else:
+            st.warning(f"Could not fetch doctor data ({dr_status}).")
+
+
+with tab2:
+    _render_live_queue_tab()
 
 
 # ── Tab 3: Lab Results ───────────────────────────────────────────────────────
 
-with tab3:
+@st.fragment
+def _render_lab_results_tab() -> None:
     st.subheader("Lab Results Entry")
     st.caption("Laboratory technician workspace — enter results for approved investigations")
 
@@ -897,61 +906,61 @@ with tab3:
         for k in list(st.session_state.keys()):
             if k.startswith("labtech_"):
                 del st.session_state[k]
-        st.rerun()
+        st.cache_data.clear()
+        st.rerun(scope="fragment")
 
-    try:
-        lab_queue_resp = requests.get(f"{API_URL}/queue", timeout=10)
-        if lab_queue_resp.status_code == 200:
-            lab_patients = lab_queue_resp.json().get("patients", [])
-        else:
-            lab_patients = []
-    except Exception:
-        lab_patients = []
+    lq_status, lq_data = _api_get_json("/queue", timeout=10)
+    lab_patients = lq_data.get("patients", []) if (lq_status == 200 and lq_data) else []
 
     if not lab_patients:
         st.info("No patients in queue.")
-    else:
-        pid_list = [pt["patient_id"] for pt in lab_patients]
-        sel_key = "lab_selected_pid"
-        if st.session_state.get(sel_key) not in pid_list:
-            st.session_state[sel_key] = pid_list[0]
+        return
 
-        list_col, detail_col = st.columns([1, 3])
-        with list_col:
-            st.markdown("**Patients**")
-            with st.container(height=580, border=False):
-                for lpt in lab_patients:
-                    score = lpt["risk_score"]
-                    bg = "#ef4444" if score >= 90 else "#f97316" if score >= 75 else "#eab308" if score >= 50 else "#22c55e"
-                    is_sel = st.session_state[sel_key] == lpt["patient_id"]
-                    border = "3px solid #fff" if is_sel else "1px solid transparent"
-                    st.markdown(
-                        f"<div style='background:{bg};color:white;padding:8px 10px;"
-                        f"border-radius:6px;margin-bottom:4px;border:{border};font-size:12px'>"
-                        f"<b>#{lpt['position']} ESI-{lpt['esi_level']} · {score:.0f}%</b><br>"
-                        f"{lpt['age']:.0f}{lpt['gender'][0].upper()} · {lpt['chief_complaint'][:32]}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    if st.button("Open" if not is_sel else "● Selected",
-                                 key=f"lsel_{lpt['patient_id']}",
-                                 use_container_width=True,
-                                 disabled=is_sel):
-                        st.session_state[sel_key] = lpt["patient_id"]
-                        st.rerun()
+    pid_list = [pt["patient_id"] for pt in lab_patients]
+    sel_key = "lab_selected_pid"
+    if st.session_state.get(sel_key) not in pid_list:
+        st.session_state[sel_key] = pid_list[0]
 
-        with detail_col:
-            lpt = next((p for p in lab_patients if p["patient_id"] == st.session_state[sel_key]), lab_patients[0])
-            score = lpt["risk_score"]
-            bg = "#ef4444" if score >= 90 else "#f97316" if score >= 75 else "#eab308" if score >= 50 else "#22c55e"
-            st.markdown(
-                f"<div style='background:{bg};color:white;padding:8px 14px;"
-                f"border-radius:6px;margin-bottom:8px'>"
-                f"<b>#{lpt['position']} &nbsp; {lpt['patient_id']} &nbsp; ESI-{lpt['esi_level']} &nbsp; Score: {score:.0f}%</b>"
-                f" &nbsp;|&nbsp; {lpt['age']:.0f}{lpt['gender'][0].upper()}"
-                f" &nbsp;|&nbsp; {lpt['chief_complaint']}</div>",
-                unsafe_allow_html=True)
-            with st.container(height=580, border=False):
-                _render_lab_tech_card(lpt)
+    list_col, detail_col = st.columns([1, 3])
+    with list_col:
+        st.markdown("**Patients**")
+        with st.container(height=580, border=False):
+            for lpt in lab_patients:
+                score = lpt["risk_score"]
+                bg = "#ef4444" if score >= 90 else "#f97316" if score >= 75 else "#eab308" if score >= 50 else "#22c55e"
+                is_sel = st.session_state[sel_key] == lpt["patient_id"]
+                border = "3px solid #fff" if is_sel else "1px solid transparent"
+                st.markdown(
+                    f"<div style='background:{bg};color:white;padding:8px 10px;"
+                    f"border-radius:6px;margin-bottom:4px;border:{border};font-size:12px'>"
+                    f"<b>#{lpt['position']} ESI-{lpt['esi_level']} · {score:.0f}%</b><br>"
+                    f"{lpt['age']:.0f}{lpt['gender'][0].upper()} · {lpt['chief_complaint'][:32]}</div>",
+                    unsafe_allow_html=True,
+                )
+                if st.button("Open" if not is_sel else "● Selected",
+                             key=f"lsel_{lpt['patient_id']}",
+                             use_container_width=True,
+                             disabled=is_sel):
+                    st.session_state[sel_key] = lpt["patient_id"]
+                    st.rerun(scope="fragment")
+
+    with detail_col:
+        lpt = next((p for p in lab_patients if p["patient_id"] == st.session_state[sel_key]), lab_patients[0])
+        score = lpt["risk_score"]
+        bg = "#ef4444" if score >= 90 else "#f97316" if score >= 75 else "#eab308" if score >= 50 else "#22c55e"
+        st.markdown(
+            f"<div style='background:{bg};color:white;padding:8px 14px;"
+            f"border-radius:6px;margin-bottom:8px'>"
+            f"<b>#{lpt['position']} &nbsp; {lpt['patient_id']} &nbsp; ESI-{lpt['esi_level']} &nbsp; Score: {score:.0f}%</b>"
+            f" &nbsp;|&nbsp; {lpt['age']:.0f}{lpt['gender'][0].upper()}"
+            f" &nbsp;|&nbsp; {lpt['chief_complaint']}</div>",
+            unsafe_allow_html=True)
+        with st.container(height=580, border=False):
+            _render_lab_tech_card(lpt)
+
+
+with tab3:
+    _render_lab_results_tab()
 
 
 # ── Tab 4: Demo Mode ──────────────────────────────────────────────────────────
@@ -1135,11 +1144,8 @@ with tab4:
     st.subheader("Real Case Validation")
     st.caption("Real anonymised cases from our internal medicine ED")
 
-    try:
-        cases_resp = requests.get(f"{API_URL}/cases/list", timeout=5)
-        cases_list = cases_resp.json() if cases_resp.status_code == 200 else []
-    except Exception:
-        cases_list = []
+    cl_status, cl_data = _api_get_json("/cases/list", timeout=5)
+    cases_list = cl_data if (cl_status == 200 and isinstance(cl_data, list)) else []
 
     if not cases_list:
         st.info("No demo cases loaded. Add cases to data/cases/demo_cases.json")
@@ -1211,10 +1217,8 @@ with tab5, st.container(height=600, border=False):
     if st.button("Refresh Analytics", key="analytics_refresh"):
         st.rerun()
 
-    try:
-        an_resp = requests.get(f"{API_URL}/analytics", timeout=10)
-        an = an_resp.json() if an_resp.status_code == 200 else None
-    except Exception:
+    an_status, an = _api_get_json("/analytics", timeout=10)
+    if an_status != 200:
         an = None
 
     if an:
