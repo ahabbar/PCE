@@ -7,4 +7,4 @@ nixPkgs = ["python311", "gcc"]
 cmds = ["mkdir -p data logs"]
 
 [start]
-cmd = "uvicorn src.api.server:app --host 0.0.0.0 --port $PORT"
+cmd = "uvicorn src.api.server:app --host :: --port $PORT"
