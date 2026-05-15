@@ -19,55 +19,22 @@ API_URL = os.environ.get("PCE_API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="PCE — Parallel Care Engine", layout="wide")
 
-# ── Dashboard styling: lock page to viewport, internal scroll per tab ─────────
+# ── Dashboard styling: compact, with per-tab internal scroll containers ──────
 st.markdown("""
 <style>
-  /* Lock the whole app to viewport — no page-level scroll */
-  html, body, [data-testid="stAppViewContainer"], .stApp, [data-testid="stApp"] {
-      height: 100vh !important;
-      max-height: 100vh !important;
-      overflow: hidden !important;
-  }
-  /* The main column = viewport minus header */
-  [data-testid="stMain"], section.main, .main, [data-testid="stMainContainer"] {
-      height: calc(100vh - 56px) !important;
-      max-height: calc(100vh - 56px) !important;
-      overflow: hidden !important;
-      padding: 0 !important;
-  }
-  /* Tighter overall padding, scroll inside the block container only */
   .block-container,
   [data-testid="block-container"],
   [data-testid="stMainBlockContainer"] {
-      padding-top: 0.5rem !important;
-      padding-bottom: 0.4rem !important;
-      padding-left: 1rem !important;
-      padding-right: 1rem !important;
+      padding-top: 0.6rem !important;
+      padding-bottom: 0.6rem !important;
       max-width: 100% !important;
-      height: 100% !important;
-      max-height: 100% !important;
-      overflow-y: auto !important;
   }
-  /* Hide the Streamlit footer + decoration so we don't lose vertical space */
-  [data-testid="stDecoration"], footer { display: none !important; }
-  [data-testid="stHeader"] { height: 0 !important; min-height: 0 !important; background: transparent !important; }
-  /* Smaller titles to leave room for content */
-  h1 { font-size: 1.5rem !important; margin: 0 0 4px 0 !important; padding: 0 !important; }
-  h2 { font-size: 1.2rem !important; margin: 4px 0 !important; }
-  h3 { font-size: 1.0rem !important; margin: 4px 0 !important; }
-  [data-testid="stCaptionContainer"], .stCaption { font-size: 12px !important; line-height: 1.2 !important; }
-  /* Compact metrics */
+  h1 { font-size: 1.5rem !important; margin: 0 0 4px 0 !important; }
+  h2 { font-size: 1.2rem !important; margin: 6px 0 !important; }
+  h3 { font-size: 1.0rem !important; margin: 6px 0 !important; }
   [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
   [data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
-  [data-testid="stMetric"] { padding: 4px 8px !important; }
-  /* Tight dividers + element gaps */
-  hr { margin: 0.3rem 0 !important; }
-  [data-testid="stVerticalBlock"] { gap: 0.3rem !important; }
-  /* Compact expander */
-  .streamlit-expanderHeader, [data-testid="stExpander"] summary { padding: 4px 8px !important; font-size: 13px !important; }
-  /* Tighter buttons */
-  .stButton > button { padding: 0.25rem 0.6rem !important; }
-  /* Tab bar tight + sticky on top */
+  hr { margin: 0.4rem 0 !important; }
   .stTabs [data-baseweb="tab-list"] { gap: 4px !important; margin-bottom: 6px !important; }
   .stTabs [data-baseweb="tab"] { padding: 4px 12px !important; }
 </style>

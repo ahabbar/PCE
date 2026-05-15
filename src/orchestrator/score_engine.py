@@ -150,10 +150,9 @@ async def update_score_on_result(
         is_red_after = new_score >= threshold
         threshold_crossed = is_red_after and not is_red_before
 
-        if abs(delta) > 8 or result.is_critical or threshold_crossed:
-            queue_reordered = await get_queue().update_score(
-                result.patient_id, new_score, is_red_after
-            )
+        queue_reordered = await get_queue().update_score(
+            result.patient_id, new_score, is_red_after
+        )
 
         try:
             await log_agent_action(
