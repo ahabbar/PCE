@@ -19,4 +19,4 @@ RUN mkdir -p data logs
 #   streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
 ENV PORT=8000
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn src.api.server:app --host :: --port ${PORT}"]
