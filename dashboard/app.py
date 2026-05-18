@@ -16,6 +16,10 @@ from src.agents.triage_score import run_triage_score
 from src.agents.red_flag import run_red_flag_guardian
 
 API_URL = os.environ.get("PCE_API_URL", "http://localhost:8000")
+# Browser-facing API URL — used for iframes, must be reachable from the user's
+# browser. On Railway, set this to the API service's public URL when the
+# dashboard talks to the API over the private network (PCE_API_URL).
+PUBLIC_API_URL = os.environ.get("PCE_PUBLIC_API_URL", API_URL)
 
 st.set_page_config(page_title="PCE — Parallel Care Engine", layout="wide")
 
@@ -1290,8 +1294,13 @@ with tab5, st.container(height=600, border=False):
 
 
 with tab6:
+    _ed_url = f"{PUBLIC_API_URL}/ed-view"
     st.markdown(
         "Live ED workflow — patients and AI agent activity stream from FastAPI via SSE. "
         "Particles fire on real status transitions; dots show actual occupancy in each zone."
     )
-    st.components.v1.iframe(f"{API_URL}/ed-view", height=720, scrolling=False)
+    st.components.v1.iframe(_ed_url, height=720, scrolling=False)
+    st.caption(
+        f"If the panel above is blank, open directly: [{_ed_url}]({_ed_url}). "
+        "On Railway, set `PCE_PUBLIC_API_URL` on the dashboard service to the API's public URL."
+    )
