@@ -492,7 +492,6 @@ async def health():
 async def generate_exit_plan(patient_id: str, body: dict):
     from src.agents.exit_coord import run_exit_coordinator, ExitInput, DispositionType
     from src.orchestrator.score_engine import reconstruct_intake_from_record
-    from src.database.db import update_patient_status
 
     record = await get_patient(patient_id)
     if record is None:
@@ -551,20 +550,6 @@ async def generate_exit_plan(patient_id: str, body: dict):
 
     llm = get_llm_client()
     plan = await run_exit_coordinator(inp, llm)
-
-    try:
-        await update_patient_status(patient_id, "seen")
-        from src.database.db import set_patient_disposition
-        await set_patient_disposition(patient_id, disp_type.value)
-    except Exception:
-        pass
-    await get_queue().discharge(patient_id)
-
-    import asyncio as _aio
-    from src.orchestrator.engine import try_cascade_assignment
-    freed = get_load_balancer().complete_case(patient_id)
-    if freed:
-        _aio.create_task(try_cascade_assignment(freed_doctor_name=freed.name))
 
     return plan.model_dump()
 
