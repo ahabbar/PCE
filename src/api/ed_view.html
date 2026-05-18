@@ -165,6 +165,7 @@ var ZONES={
   discharge: {rx:.69,ry:.16,rw:.09,rh:.12,lbl:'Discharge\nHome',col:C.green},
   admit:     {rx:.69,ry:.30,rw:.09,rh:.12,lbl:'Ward\nAdmit',col:C.blue},
   transfer:  {rx:.69,ry:.44,rw:.09,rh:.12,lbl:'Transfer\nOut',col:C.amber},
+  nurse_proc:{rx:.01,ry:.55,rw:.10,rh:.13,lbl:'Nurse\nProcedural',col:C.teal},
   a1:{rx:.04,ry:.75,rw:.10,rh:.13,lbl:'A1\nRisk Score\nGemini Flash',col:C.orange},
   a2:{rx:.16,ry:.75,rw:.10,rh:.13,lbl:'A2\nRed Flag\nT=0.0',col:C.red},
   a3:{rx:.28,ry:.75,rw:.10,rh:.13,lbl:'A3\nWorkup\nWhitelist',col:C.teal},
@@ -224,7 +225,7 @@ function drawBg(){
   Bg.fillStyle=C.teal;Bg.fillText('\u25b8 PHYSICAL ED ZONES + RESOURCES',x(.50),y(.13));
   Bg.textAlign='left';
   Bg.fillStyle=C.orange;Bg.fillText('\u25b8 PCE AGENTS \u2014 7 PARALLEL AGENTS (asyncio.gather)',x(.01),y(.71));
-  ['arrival','triage','waiting','resus','treatment','lab','imaging','pharmacy','discharge','admit','transfer'].forEach(function(k){drawZone(Bg,k);});
+  ['arrival','triage','waiting','resus','treatment','lab','imaging','pharmacy','discharge','admit','transfer','nurse_proc'].forEach(function(k){drawZone(Bg,k);});
   ['a1','a2','a3','a4','a5','a6','a7'].forEach(function(k){drawZone(Bg,k,.28);});
   // HIS/EHR chip inside the triage zone (upper-right corner)
   drawHisChip(Bg);
@@ -309,6 +310,10 @@ function drawAgentPanel(){
 
 // ─── Patient dots inside zones ────────────────────────────────────────
 function zoneFor(p){
+  // ESI-1 always goes straight to Resus (visualised in the resus strip),
+  // regardless of queue status. They are excluded from the PCE workup queue
+  // but still occupy a Resus bay physically.
+  if(parseInt(p.esi,10)===1)return 'resus';
   if(p.status==='waiting')return 'waiting';
   if(p.status==='workup'||p.status==='results'||p.status==='assigned'){
     // Inside treatment area; bay decided per doctor in drawDots
@@ -408,25 +413,25 @@ function drawDoctors(treatmentPatients){
     var rgb=h2r(col);
     // Bay frame
     Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.08)';
-    Dot.beginPath();rr(Dot,bx,bayY,bayW,bayH,5);Dot.fill();
-    Dot.strokeStyle=col;Dot.lineWidth=.9;Dot.globalAlpha=.7;
-    Dot.beginPath();rr(Dot,bx,bayY,bayW,bayH,5);Dot.stroke();Dot.globalAlpha=1;
-    // Bay header (doctor name + role + load)
+    Dot.beginPath();rr(Dot,bx,bayY,bayW,bayH,4);Dot.fill();
+    Dot.strokeStyle=col;Dot.lineWidth=.8;Dot.globalAlpha=.65;
+    Dot.beginPath();rr(Dot,bx,bayY,bayW,bayH,4);Dot.stroke();Dot.globalAlpha=1;
+    // Slim header: doctor name (small), load count, thin underline
     var roleAbbr={consultant:'CONS',senior_registrar:'SR',registrar:'REG',sho:'SHO'}[d.role]||'';
-    Dot.fillStyle=col;Dot.font='800 9px Syne';Dot.textAlign='left';Dot.textBaseline='top';
     var nm=(d.name||d.id||'').replace('Dr. ','');
-    Dot.fillText(nm,bx+6,bayY+5);
-    Dot.fillStyle=C.muted;Dot.font='600 7px Syne Mono';
-    Dot.fillText(roleAbbr,bx+6,bayY+15);
-    Dot.fillStyle=col;Dot.font='700 8px Syne Mono';Dot.textAlign='right';
-    Dot.fillText(d.active+'/'+d.max,bx+bayW-6,bayY+5);
-    // Load bar at top of bay
-    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.6)';
-    var barW=(bayW-12)*Math.min(1,(d.load_pct||0)/100);
-    Dot.fillRect(bx+6,bayY+24,barW,1.5);
-    // Patient dots inside bay (below header strip ~28px)
+    Dot.fillStyle=col;Dot.font='700 7px Syne';Dot.textAlign='left';Dot.textBaseline='top';
+    Dot.fillText(nm,bx+4,bayY+3);
+    Dot.fillStyle=C.muted;Dot.font='600 6px Syne Mono';
+    Dot.fillText(roleAbbr,bx+4,bayY+11);
+    Dot.fillStyle=col;Dot.font='700 7px Syne Mono';Dot.textAlign='right';
+    Dot.fillText(d.active+'/'+d.max,bx+bayW-4,bayY+3);
+    // Thin load bar
+    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.55)';
+    var barW=(bayW-8)*Math.min(1,(d.load_pct||0)/100);
+    Dot.fillRect(bx+4,bayY+18,barW,1);
+    // Patient dots inside bay (header strip ~20px)
     var pList=(byDoc[d.id]||[]).concat(byDoc[d.name]||[]);
-    packDotsInRect(pList,bx,bayY+28,bayW,bayH-28,8,3);
+    packDotsInRect(pList,bx,bayY+20,bayW,bayH-20,7,2);
   });
   // Header
   Dot.fillStyle=C.muted;Dot.font='700 8px Syne Mono';Dot.textAlign='right';Dot.textBaseline='top';
