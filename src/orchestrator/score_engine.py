@@ -88,7 +88,8 @@ async def update_score_on_result(
     if should_auto_assign(result, new_result_count, already_assigned):
         lb = get_load_balancer()
         esi = int(patient_record.get("esi_level", 3))
-        assignment = lb.assign_patient(result.patient_id, esi_level=esi)
+        rs = float(patient_record.get("risk_score", 0.0) or 0.0)
+        assignment = lb.assign_patient(result.patient_id, esi_level=esi, risk_score=rs)
         if assignment.assigned_doctor:
             await queue.assign_doctor(result.patient_id, assignment.assigned_doctor.name)
             if assignment.bumped_patient_id:

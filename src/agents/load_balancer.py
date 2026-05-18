@@ -30,6 +30,7 @@ class ActiveCase:
     esi_level: int
     started_at: float
     estimated_total_min: int
+    risk_score: float = 0.0
 
     @property
     def elapsed_min(self) -> float:
@@ -38,6 +39,16 @@ class ActiveCase:
     @property
     def remaining_min(self) -> float:
         return max(0.0, self.estimated_total_min - self.elapsed_min)
+
+    @property
+    def severity(self) -> tuple[int, float]:
+        # Smaller tuple = more severe. ESI dominates; risk_score breaks ties.
+        return (self.esi_level, -self.risk_score)
+
+
+def _severity(esi_level: int, risk_score: float) -> tuple[int, float]:
+    """Smaller tuple = more severe. ESI dominates; risk_score breaks ties."""
+    return (esi_level, -risk_score)
 
 
 @dataclass
@@ -88,10 +99,17 @@ class DoctorLoadBalancer:
     def __init__(self, doctors: list[Doctor]):
         self._doctors = doctors
 
-    def assign_patient(self, patient_id: str, esi_level: int) -> AssignmentResult:
+    def assign_patient(
+        self,
+        patient_id: str,
+        esi_level: int,
+        risk_score: float = 0.0,
+    ) -> AssignmentResult:
         esi_level = max(1, min(5, esi_level))
+        risk_score = max(0.0, min(100.0, float(risk_score)))
         preferred_roles = ESI_PREFERRED_ROLES.get(esi_level, ESI_PREFERRED_ROLES[3])
         service_time = ESI_SERVICE_TIMES.get(esi_level, 15)
+        incoming_sev = _severity(esi_level, risk_score)
 
         # 0) ESI-1 special case: must own a doctor exclusively (1:1). Look
         #    for an EMPTY doctor anywhere — role preference is only a
@@ -101,7 +119,7 @@ class DoctorLoadBalancer:
             if empty:
                 role_rank = {r: i for i, r in enumerate(preferred_roles)}
                 chosen = min(empty, key=lambda d: role_rank.get(d.role, 99))
-                self._add_case(chosen, patient_id, esi_level, service_time)
+                self._add_case(chosen, patient_id, esi_level, service_time, risk_score)
                 return AssignmentResult(
                     patient_id=patient_id,
                     assigned_doctor=chosen,
@@ -114,7 +132,7 @@ class DoctorLoadBalancer:
             if bump_target is not None:
                 doctor, victim_case = bump_target
                 doctor.active_cases.remove(victim_case)
-                self._add_case(doctor, patient_id, esi_level, service_time)
+                self._add_case(doctor, patient_id, esi_level, service_time, risk_score)
                 return AssignmentResult(
                     patient_id=patient_id,
                     assigned_doctor=doctor,
@@ -150,7 +168,7 @@ class DoctorLoadBalancer:
                     else f"Assigned to {chosen.role.value} (preferred for ESI-{esi_level})"
                 )
                 load_balanced = len(candidates) > 1
-                self._add_case(chosen, patient_id, esi_level, service_time)
+                self._add_case(chosen, patient_id, esi_level, service_time, risk_score)
                 return AssignmentResult(
                     patient_id=patient_id,
                     assigned_doctor=chosen,
@@ -159,9 +177,33 @@ class DoctorLoadBalancer:
                     load_balanced=load_balanced,
                 )
 
-        # 2) Overflow path. Non-ESI-1 with no available doctor, or ESI-1
-        #    where every doctor already holds an ESI-1 (nothing to bump).
-        #    Walk preferred roles ignoring is_available.
+        # 2) No available doctor. For non-ESI-1, try a SEVERITY-BASED BUMP
+        #    first: only bump a victim that is STRICTLY less severe than the
+        #    incoming patient (by ESI, then risk_score). A higher-acuity
+        #    patient already with a doctor is never displaced.
+        bump = self._pick_severity_bump(incoming_sev, preferred_roles)
+        if bump is not None:
+            doctor, victim = bump
+            doctor.active_cases.remove(victim)
+            self._add_case(doctor, patient_id, esi_level, service_time, risk_score)
+            return AssignmentResult(
+                patient_id=patient_id,
+                assigned_doctor=doctor,
+                reason=(
+                    f"Bumped lower-acuity patient {victim.patient_id} "
+                    f"(ESI-{victim.esi_level} risk={victim.risk_score:.0f}) off {doctor.role.value} — "
+                    f"incoming is more severe (ESI-{esi_level} risk={risk_score:.0f})"
+                ),
+                estimated_wait_min=0.0,
+                load_balanced=False,
+                bumped_patient_id=victim.patient_id,
+                bumped_from_doctor=doctor.name,
+            )
+
+        # 3) Overflow path. Non-ESI-1 with no available doctor AND no
+        #    bumpable lower-severity patient, or ESI-1 where every doctor
+        #    already holds an ESI-1. Walk preferred roles ignoring
+        #    is_available — preserves the "always assign somewhere" contract.
         chosen = None
         chosen_role = None
         for role in preferred_roles:
@@ -177,7 +219,7 @@ class DoctorLoadBalancer:
         if chosen is None:
             chosen = min(self._doctors, key=lambda d: (len(d.active_cases), d.total_remaining_min))
             chosen_role = chosen.role
-        self._add_case(chosen, patient_id, esi_level, service_time)
+        self._add_case(chosen, patient_id, esi_level, service_time, risk_score)
         reason = (
             f"ESI-1 force-assigned to {chosen_role.value} (overflow — all doctors at capacity)"
             if esi_level == 1
@@ -190,6 +232,38 @@ class DoctorLoadBalancer:
             estimated_wait_min=max(0.0, chosen.total_remaining_min - service_time),
             load_balanced=False,
         )
+
+    def _pick_severity_bump(
+        self,
+        incoming_sev: tuple[int, float],
+        preferred_roles: list[DoctorRole],
+    ) -> Optional[tuple["Doctor", "ActiveCase"]]:
+        """Find a STRICTLY less-severe victim that can be bumped to free a
+        doctor for the incoming patient. ESI-1 victims are never bumped.
+        Prefers victims on doctors whose role is preferred for the incoming
+        patient; within that, picks the LEAST-severe victim (largest
+        severity tuple) to minimise harm. Returns (doctor, victim) or None.
+        """
+        candidates: list[tuple[Doctor, ActiveCase, int]] = []
+        for doctor in self._doctors:
+            if doctor.has_esi1 or not doctor.active_cases:
+                continue
+            for case in doctor.active_cases:
+                if case.esi_level == 1:
+                    continue
+                if case.severity > incoming_sev:
+                    role_rank = (
+                        preferred_roles.index(doctor.role)
+                        if doctor.role in preferred_roles
+                        else len(preferred_roles)
+                    )
+                    candidates.append((doctor, case, role_rank))
+        if not candidates:
+            return None
+        # Sort: preferred-role first, then least-severe victim (largest tuple).
+        candidates.sort(key=lambda t: (t[2], -t[1].severity[0], t[1].severity[1]))
+        doctor, victim, _ = candidates[0]
+        return doctor, victim
 
     def _pick_bump_target(self, preferred_roles: list[DoctorRole]) -> Optional[tuple["Doctor", "ActiveCase"]]:
         """Find a non-ESI-1 patient to bump so an incoming ESI-1 can take
@@ -213,7 +287,14 @@ class DoctorLoadBalancer:
             return doctor, victim
         return None
 
-    def _add_case(self, doctor: "Doctor", patient_id: str, esi_level: int, service_time: int) -> None:
+    def _add_case(
+        self,
+        doctor: "Doctor",
+        patient_id: str,
+        esi_level: int,
+        service_time: int,
+        risk_score: float = 0.0,
+    ) -> None:
         # Idempotency: if this patient is already on ANY doctor (stale state
         # from a prior cascade), remove the old case first so the patient is
         # only ever on one doctor at a time.
@@ -224,6 +305,7 @@ class DoctorLoadBalancer:
             esi_level=esi_level,
             started_at=time.time(),
             estimated_total_min=service_time,
+            risk_score=risk_score,
         )
         doctor.active_cases.append(case)
 

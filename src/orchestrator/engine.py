@@ -47,7 +47,8 @@ async def try_cascade_assignment(freed_doctor_name: str | None = None) -> list[d
             continue
 
         esi = patient.triage_score.esi_level if patient.triage_score else 3
-        assignment = lb.assign_patient(patient.intake.patient_id, esi_level=esi)
+        rs = patient.triage_score.risk_score if patient.triage_score else 0.0
+        assignment = lb.assign_patient(patient.intake.patient_id, esi_level=esi, risk_score=rs)
         if not assignment.assigned_doctor:
             break
 

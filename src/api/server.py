@@ -419,8 +419,9 @@ async def inject_lab_result(body: dict):
 @app.post("/assign/{patient_id}")
 async def assign_doctor(patient_id: str, body: dict):
     esi_level = int(body.get("esi_level", 3))
+    risk_score = float(body.get("risk_score", 0.0) or 0.0)
     lb = get_load_balancer()
-    result = lb.assign_patient(patient_id, esi_level)
+    result = lb.assign_patient(patient_id, esi_level, risk_score=risk_score)
     queue = get_queue()
     if result.assigned_doctor:
         await queue.assign_doctor(patient_id, result.assigned_doctor.name)

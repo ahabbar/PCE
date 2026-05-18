@@ -56,7 +56,8 @@ async def auto_fill_beds() -> dict:
         if not free_doctors:
             break  # no point continuing; nothing more to assign
         esi = p.triage_score.esi_level if p.triage_score else 3
-        result = lb.assign_patient(p.intake.patient_id, esi_level=esi)
+        rs = p.triage_score.risk_score if p.triage_score else 0.0
+        result = lb.assign_patient(p.intake.patient_id, esi_level=esi, risk_score=rs)
         if result.assigned_doctor:
             await queue.assign_doctor(p.intake.patient_id, result.assigned_doctor.name)
             assigned += 1

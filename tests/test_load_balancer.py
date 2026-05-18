@@ -118,6 +118,45 @@ def test_load_report_sorted():
     assert loads == sorted(loads, reverse=True)
 
 
+def test_higher_severity_bumps_lower_when_all_full():
+    """When every doctor is busy, an incoming patient that is STRICTLY more
+    severe than someone in a chair bumps the lowest-severity victim."""
+    lb = fresh_balancer()
+    # Saturate all 5 doctors with ESI-3 risk=40 patients
+    for i, doctor in enumerate(lb.get_all_doctors()):
+        doctor.active_cases.append(ActiveCase(f"victim-{i}", 3, time.time(), 15, risk_score=40.0))
+    # Incoming: ESI-2 risk=80 (more severe on both axes)
+    result = lb.assign_patient("pt-urgent", esi_level=2, risk_score=80.0)
+    assert result.assigned_doctor is not None
+    assert result.bumped_patient_id is not None
+    assert result.bumped_patient_id.startswith("victim-")
+    assert "more severe" in result.reason.lower()
+
+
+def test_lower_severity_does_not_bump_higher():
+    """An incoming low-severity patient must NEVER displace a higher-severity
+    one. Falls through to the overflow path instead."""
+    lb = fresh_balancer()
+    # Saturate all 5 doctors with HIGH severity ESI-2 risk=90 patients
+    for i, doctor in enumerate(lb.get_all_doctors()):
+        doctor.active_cases.append(ActiveCase(f"high-{i}", 2, time.time(), 22, risk_score=90.0))
+    # Incoming: ESI-4 risk=20 (less severe)
+    result = lb.assign_patient("pt-mild", esi_level=4, risk_score=20.0)
+    assert result.bumped_patient_id is None, "must never bump a more-severe patient"
+    assert "overflow" in result.reason.lower()
+
+
+def test_risk_score_breaks_esi_tie_for_bump():
+    """Equal ESI: higher risk_score wins and bumps the lower-risk victim."""
+    lb = fresh_balancer()
+    for i, doctor in enumerate(lb.get_all_doctors()):
+        doctor.active_cases.append(ActiveCase(f"v-{i}", 3, time.time(), 15, risk_score=30.0))
+    # Same ESI, higher risk
+    result = lb.assign_patient("pt-tied", esi_level=3, risk_score=75.0)
+    assert result.bumped_patient_id is not None
+    assert result.bumped_patient_id.startswith("v-")
+
+
 def test_seniority_escalation():
     # Pool with only SHOs — ESI-2 must escalate to SHO
     pool = [
