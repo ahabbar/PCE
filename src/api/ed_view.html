@@ -540,24 +540,57 @@ requestAnimationFrame(loop);
 function tog(){play=!play;var b=document.getElementById('bPlay');b.textContent=play?'\u23F8 Pause':'\u25B6 Resume';b.className=play?'btn on':'btn';if(play)last=null;}
 function spd(s){speed=s;['s1','s2','s4'].forEach(function(id){document.getElementById(id).className='btn';});document.getElementById('s'+s).className='btn on';}
 
+// ─── Diagnostics overlay (so we can SEE what's failing) ──────────────
+var DIAG={html:'loaded',canvas:'pending',sse:'idle',sseUrl:'',lastErr:'',snapCount:0};
+function drawDiag(){
+  if(!W||!H)return;
+  var lines=[
+    'HTML:    '+DIAG.html,
+    'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
+    'SSE:     '+DIAG.sse,
+    'SSE URL: '+(DIAG.sseUrl||'(unset)'),
+    'SNAPS:   '+DIAG.snapCount,
+  ];
+  if(DIAG.lastErr)lines.push('LAST ERR: '+DIAG.lastErr);
+  var pad=8,lh=12,w=300,h=lines.length*lh+pad*2;
+  Dot.save();
+  Dot.fillStyle='rgba(255,140,0,.10)';Dot.strokeStyle='#ff8c00';Dot.lineWidth=.8;
+  Dot.beginPath();rr(Dot,W-w-10,H-h-10,w,h,5);Dot.fill();Dot.stroke();
+  Dot.fillStyle='#ff8c00';Dot.font='600 9px Syne Mono';Dot.textAlign='left';Dot.textBaseline='top';
+  lines.forEach(function(l,i){Dot.fillText(l,W-w-10+pad,H-h-10+pad+i*lh);});
+  Dot.restore();
+}
+// Hook diag into the dot pass
+var _origDrawDots=drawDots;
+drawDots=function(){_origDrawDots();drawDiag();};
+// Hook diag into resize
+var _origResize=resize;
+resize=function(){_origResize();if(W>0&&H>0)DIAG.canvas='ready';};
+
 // ─── SSE connection ───────────────────────────────────────────────────
 var es=null,reconnectMs=2000;
 function connect(){
   try{
     var streamUrl=(window.PCE_STREAM_URL||'/ed-stream');
+    DIAG.sseUrl=streamUrl;DIAG.sse='connecting…';
     es=new EventSource(streamUrl);
     es.onopen=function(){
       document.getElementById('lDot').className='ldot';
       document.getElementById('lTxt').textContent='LIVE';
+      DIAG.sse='connected';DIAG.lastErr='';
       reconnectMs=2000;
     };
     es.onmessage=function(ev){
-      try{var snap=JSON.parse(ev.data);if(snap&&snap.patients!==undefined)applySnapshot(snap);}
-      catch(_){}
+      try{
+        var snap=JSON.parse(ev.data);
+        if(snap&&snap.patients!==undefined){applySnapshot(snap);DIAG.snapCount++;}
+      }catch(e){DIAG.lastErr='parse:'+e.message;}
     };
     es.onerror=function(){
       document.getElementById('lDot').className='ldot off';
       document.getElementById('lTxt').textContent='RECONNECTING';
+      DIAG.sse='reconnecting (readyState='+(es?es.readyState:'?')+')';
+      DIAG.lastErr='SSE error — wrong URL, CORS, or mixed content?';
       if(es){es.close();es=null;}
       setTimeout(connect,reconnectMs);
       reconnectMs=Math.min(reconnectMs*1.5,15000);
@@ -565,6 +598,7 @@ function connect(){
   }catch(e){
     document.getElementById('lDot').className='ldot off';
     document.getElementById('lTxt').textContent='OFFLINE';
+    DIAG.sse='exception';DIAG.lastErr=e.message;
     setTimeout(connect,5000);
   }
 }
