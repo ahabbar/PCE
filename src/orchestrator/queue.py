@@ -83,6 +83,30 @@ class QueueManager:
                     result_count=r.result_count,
                 )
 
+    async def admit_to_bed(self, patient_id: str) -> bool:
+        """Move a 'waiting' patient into a treatment bed (status='workup').
+        Returns True if state changed. ESI-1 patients are never bedded — they
+        bypass beds entirely and live in Resus."""
+        async with self._lock:
+            if patient_id not in self._patients:
+                return False
+            r = self._patients[patient_id]
+            if r.status != "waiting":
+                return False
+            if r.triage_score and r.triage_score.esi_level == 1:
+                return False
+            self._patients[patient_id] = PatientRecord(
+                intake=r.intake,
+                esi_result=r.esi_result,
+                triage_score=r.triage_score,
+                red_flag=r.red_flag,
+                workup=r.workup,
+                status="workup",
+                assigned_doctor=r.assigned_doctor,
+                result_count=r.result_count,
+            )
+            return True
+
     async def unassign_doctor(self, patient_id: str) -> None:
         """Clear assigned_doctor and revert status to 'waiting'. Used when an
         incoming ESI-1 bumps this patient off their doctor so they can be

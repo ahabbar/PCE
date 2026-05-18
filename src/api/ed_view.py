@@ -11,6 +11,7 @@ import aiosqlite
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+from src.agents.bed_manager import BED_CAPACITY, auto_fill_beds
 from src.agents.load_balancer import get_load_balancer
 from src.database.db import get_recent_patients
 from src.orchestrator.queue import get_queue
@@ -37,6 +38,7 @@ def _patient_to_dict(p) -> dict:
         "doctor": p.assigned_doctor,
         "result_count": int(p.result_count or 0),
         "wait_min": round((time.time() - p.intake.arrival_time) / 60.0, 1),
+        "risk_score": float(score.risk_score) if score else 50.0,
     }
 
 
@@ -76,6 +78,13 @@ async def _lab_utilization_pct() -> int:
 
 
 async def _build_snapshot() -> dict:
+    # Run the bed/doctor allocation tick BEFORE reading the queue so the
+    # snapshot always reflects the latest admission state.
+    try:
+        await auto_fill_beds()
+    except Exception as exc:
+        logger.debug("auto_fill_beds tick failed: %s", exc)
+
     queue = get_queue()
     sorted_patients = await queue.get_sorted_queue()
 
@@ -129,6 +138,7 @@ async def _build_snapshot() -> dict:
         "patients": pts,
         "doctors": doctors_out,
         "agents": agents,
+        "bed_capacity": BED_CAPACITY,
         "metrics": {
             "in_ed": len(pts),
             "waiting": waiting,

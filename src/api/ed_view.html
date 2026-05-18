@@ -121,6 +121,7 @@ var C={teal:'#00e5c8',red:'#ff3a3a',orange:'#ff8c00',yellow:'#f5c518',blue:'#4da
 var prevPatients={}; // id -> {zone, status, is_red, esi, result_count}
 var curPatients={};
 var curDoctors=[]; // [{id,name,role,active,max,load_pct,patients:[]}]
+var curBedCapacity=10;
 var agentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
 var prevAgentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
 var snapTs=0;
@@ -262,6 +263,7 @@ function applySnapshot(snap){
   curPatients={};
   (snap.patients||[]).forEach(function(p){curPatients[p.id]=p;});
   curDoctors=snap.doctors||[];
+  curBedCapacity=snap.bed_capacity||10;
 
   // Agent activity — keep counts in sync for the side panel only (no particles)
   var newCounts=snap.agents||{};
@@ -401,8 +403,8 @@ function drawDots(){
     Dot.fillStyle=z.col;Dot.font='800 11px Syne Mono';Dot.textAlign='right';Dot.textBaseline='top';
     Dot.fillText(list.length,px+pw-6,py+4);
   });
-  drawDoctors(byZone.treatment||[],byZone.resus||[]);
-  drawEsi1Connectors(byZone.resus||[]);
+  drawTreatmentBeds(byZone.treatment||[], byZone.resus||[]);
+  drawDoctorsAtPatients(byZone.treatment||[], byZone.resus||[]);
 }
 
 function loadColor(pct){
@@ -412,86 +414,82 @@ function loadColor(pct){
   return C.green;
 }
 
-var bayPositions={}; // doctor name/id -> {cx, cy, bx, by, bw, bh, busy}
+// Position bookkeeping for doctor placement.
+var bedPositions={};        // patient_id -> {x,y} center of patient dot in bed
+var resusPositions={};      // patient_id -> {x,y} center of patient dot in resus
+var freePoolBox=null;       // {x,y,w,h} for free doctors pool
 
-function drawDoctors(treatmentPatients,resusPatients){
+function drawTreatmentBeds(treatmentPatients, resusPatients){
   if(!W)return;
-  var z=ZONES.treatment;if(!z)return;
+  var z=ZONES.treatment; if(!z)return;
   var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
-  var headerH=18,pad=6;
-  bayPositions={};
-  // Build 5 bay slots regardless of curDoctors length (placeholders if missing)
-  var docs=(curDoctors||[]).slice(0,5);
-  while(docs.length<5)docs.push({id:'D'+(docs.length+1),name:'Bay '+(docs.length+1),role:'',active:0,max:0,load_pct:0,patients:[]});
-  // Patient lookup: who is assigned to which doctor (exclude ESI-1, those render in Resus)
-  var byDoc={};
-  (treatmentPatients||[]).forEach(function(p){
-    if(parseInt(p.esi,10)===1)return;
-    var key=p.doctor||'__unassigned__';
-    (byDoc[key]=byDoc[key]||[]).push(p);
-  });
-  // Which doctors are flagged BUSY by an ESI-1 patient in Resus
-  var esi1Doctors={};
-  (resusPatients||[]).forEach(function(p){
-    if(parseInt(p.esi,10)===1&&p.doctor)esi1Doctors[p.doctor]=p;
-  });
-  // Layout: 5 bays in 1 row. Cap height so the lower part of treatment is
-  // free for the nurse procedural room.
-  var bayGap=6;
-  var bayW=(pw-pad*2-bayGap*4)/5;
-  var bayY=py+headerH+2;
-  var bayH=Math.min(120,ph-headerH-pad-60);
-  docs.forEach(function(d,i){
-    var bx=px+pad+i*(bayW+bayGap);
-    var busy=esi1Doctors[d.id]||esi1Doctors[d.name];
-    var col=busy?C.red:loadColor(d.load_pct);
-    var rgb=h2r(col);
-    // Bay frame (red wash if BUSY by ESI-1)
-    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+','+(busy?.18:.08)+')';
-    Dot.beginPath();rr(Dot,bx,bayY,bayW,bayH,4);Dot.fill();
-    Dot.strokeStyle=col;Dot.lineWidth=busy?1.4:.8;Dot.globalAlpha=busy?.95:.65;
-    Dot.beginPath();rr(Dot,bx,bayY,bayW,bayH,4);Dot.stroke();Dot.globalAlpha=1;
-    // Slim header
-    var roleAbbr={consultant:'CONS',senior_registrar:'SR',registrar:'REG',sho:'SHO'}[d.role]||'';
-    var nm=(d.name||d.id||'').replace('Dr. ','');
-    Dot.fillStyle=col;Dot.font='700 7px Syne';Dot.textAlign='left';Dot.textBaseline='top';
-    Dot.fillText(nm,bx+4,bayY+3);
-    Dot.fillStyle=C.muted;Dot.font='600 6px Syne Mono';
-    Dot.fillText(roleAbbr,bx+4,bayY+11);
-    Dot.fillStyle=col;Dot.font='700 7px Syne Mono';Dot.textAlign='right';
-    Dot.fillText(d.active+'/'+d.max,bx+bayW-4,bayY+3);
-    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.55)';
-    var barW=(bayW-8)*Math.min(1,(d.load_pct||0)/100);
-    Dot.fillRect(bx+4,bayY+18,barW,1);
-    // BUSY ribbon (only if ESI-1 in resus)
-    if(busy){
-      Dot.fillStyle=C.red;Dot.font='800 7px Syne Mono';Dot.textAlign='center';Dot.textBaseline='middle';
-      Dot.globalAlpha=.6+.4*Math.abs(Math.sin(simT*3));
-      Dot.fillText('BUSY \u00b7 ESI-1',bx+bayW/2,bayY+bayH-7);
-      Dot.globalAlpha=1;
-    }
-    // Patient dots inside bay
-    var pList=(byDoc[d.id]||[]).concat(byDoc[d.name]||[]);
-    packDotsInRect(pList,bx,bayY+20,bayW,bayH-20-(busy?12:0),7,2);
-    // Remember bay center for connector lines (use left edge midpoint
-    // since the Resus strip is above & to the left)
-    bayPositions[d.id]={cx:bx+bayW/2,cy:bayY,bx:bx,by:bayY,bw:bayW,bh:bayH,busy:!!busy};
-    bayPositions[d.name]=bayPositions[d.id];
-  });
+  var headerH=16, pad=6, gap=4;
+  var COLS=5, ROWS=2;
+  var BEDS=curBedCapacity||10;
+  bedPositions={};
+
+  // Bottom strip holds nurse procedural + free doctors pool
+  var stripH=Math.max(54, Math.floor(ph*.24));
+  var gridH=ph-headerH-stripH-pad*2;
+  var bedW=(pw-pad*2-gap*(COLS-1))/COLS;
+  var bedH=(gridH-gap*(ROWS-1))/ROWS;
+
+  // Treatment patients (exclude ESI-1) sorted by risk desc — top BEDS fill beds
+  var bedded=(treatmentPatients||[]).filter(function(p){return parseInt(p.esi,10)!==1;});
+  bedded.sort(function(a,b){return (b.risk_score||0)-(a.risk_score||0);});
+  bedded=bedded.slice(0,BEDS);
+
   // Header
-  Dot.fillStyle=C.muted;Dot.font='700 8px Syne Mono';Dot.textAlign='right';Dot.textBaseline='top';
-  Dot.fillText('TREATMENT BAYS \u00b7 '+(treatmentPatients||[]).length+' IN CARE',px+pw-6,py+5);
-  // Unassigned treatment patients (no doctor yet) — slim row to the right of nurse box
-  var un=byDoc.__unassigned__||[];
-  if(un.length){
-    Dot.fillStyle=C.muted;Dot.font='700 7px Syne Mono';Dot.textAlign='right';Dot.textBaseline='bottom';
-    Dot.fillText('\u2190 UNASSIGNED',px+pw-pad,py+ph-2);
-    un.slice(0,10).forEach(function(p,i){
-      drawPatientDot(Dot,p,px+pw-14-i*18,py+ph-12,5);
-    });
+  Dot.fillStyle=C.muted;Dot.font='700 8px Syne Mono';Dot.textAlign='left';Dot.textBaseline='top';
+  Dot.fillText('TREATMENT BAY',px+pad,py+4);
+  Dot.textAlign='right';
+  Dot.fillStyle=bedded.length>=BEDS?C.orange:C.text;
+  Dot.fillText(bedded.length+'/'+BEDS+' BEDS',px+pw-pad,py+4);
+
+  // Beds
+  for(var i=0;i<BEDS;i++){
+    var r=Math.floor(i/COLS), c=i%COLS;
+    var bx=px+pad+c*(bedW+gap);
+    var by=py+headerH+pad+r*(bedH+gap);
+    drawBed(bx,by,bedW,bedH,i+1,bedded[i]||null);
   }
-  // Nurse Procedural Room — lower-left corner of treatment
-  drawNurseProc(px+pad,bayY+bayH+6,bayW*1.4,ph-(bayY+bayH+6-py)-6);
+
+  // Bottom strip
+  var stripY=py+headerH+pad+gridH+gap;
+  var nurseW=Math.floor((pw-pad*3)*.5);
+  var poolW=pw-pad*3-nurseW;
+  drawNurseProc(px+pad,stripY,nurseW,stripH-pad);
+  drawFreeDocsPool(px+pad*2+nurseW,stripY,poolW,stripH-pad,treatmentPatients,resusPatients);
+
+  // Record resus dot positions for doctor placement
+  resusPositions={};
+  (resusPatients||[]).forEach(function(p){
+    var d=dotPositions[p.id]; if(d)resusPositions[p.id]={x:d.x,y:d.y};
+  });
+}
+
+function drawBed(bx,by,bw,bh,n,p){
+  var col=p?colorForPatient(p):C.muted;
+  var rgb=h2r(col);
+  Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+','+(p?.10:.05)+')';
+  Dot.beginPath();rr(Dot,bx,by,bw,bh,4);Dot.fill();
+  Dot.strokeStyle=col;Dot.lineWidth=p?1:.7;Dot.globalAlpha=p?.85:.30;
+  Dot.beginPath();rr(Dot,bx,by,bw,bh,4);Dot.stroke();Dot.globalAlpha=1;
+  // Bed number tag
+  Dot.fillStyle=C.muted;Dot.font='700 6px Syne Mono';
+  Dot.textAlign='left';Dot.textBaseline='top';
+  Dot.fillText('B'+n,bx+3,by+2);
+  if(!p){
+    Dot.fillStyle=C.muted;Dot.font='600 7px Syne Mono';
+    Dot.textAlign='center';Dot.textBaseline='middle';
+    Dot.globalAlpha=.45;Dot.fillText('EMPTY',bx+bw/2,by+bh/2);Dot.globalAlpha=1;
+    return;
+  }
+  // Patient dot, centered upper half (leaves room below for doctor)
+  var cx=bx+bw/2, cy=by+bh*.42;
+  drawPatientDot(Dot,p,cx,cy,7);
+  recordDotPos(p,cx,cy,7);
+  bedPositions[p.id]={x:cx,y:cy,bx:bx,by:by,bw:bw,bh:bh};
 }
 
 function drawNurseProc(bx,by,bw,bh){
@@ -499,43 +497,89 @@ function drawNurseProc(bx,by,bw,bh){
   var col=C.purple,rgb=h2r(col);
   Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.12)';
   Dot.beginPath();rr(Dot,bx,by,bw,bh,4);Dot.fill();
-  Dot.strokeStyle=col;Dot.lineWidth=.9;Dot.globalAlpha=.8;
+  Dot.strokeStyle=col;Dot.lineWidth=.9;Dot.globalAlpha=.75;
   Dot.beginPath();rr(Dot,bx,by,bw,bh,4);Dot.stroke();Dot.globalAlpha=1;
-  Dot.fillStyle=col;Dot.font='800 8px Syne';Dot.textAlign='left';Dot.textBaseline='top';
+  Dot.fillStyle=col;Dot.font='800 7px Syne';Dot.textAlign='left';Dot.textBaseline='top';
   Dot.fillText('NURSE PROCEDURAL',bx+5,by+4);
-  Dot.fillStyle=C.muted;Dot.font='600 7px Syne Mono';
+  Dot.fillStyle=C.muted;Dot.font='600 6px Syne Mono';
   Dot.fillText('IV \u00b7 ECG \u00b7 Wound \u00b7 Cath',bx+5,by+14);
 }
 
-// Draw red connector line from each ESI-1 patient dot in Resus to its
-// assigned doctor's bay in Treatment. Called after dots and bays are laid out.
-function drawEsi1Connectors(resusPatients){
-  if(!resusPatients||!resusPatients.length)return;
-  Dot.save();
-  var pulse=.55+.45*Math.abs(Math.sin(simT*2));
-  resusPatients.forEach(function(p){
-    if(parseInt(p.esi,10)!==1||!p.doctor)return;
-    var bay=bayPositions[p.doctor];
-    var pos=dotPositions[p.id];
-    if(!bay||!pos)return;
-    // Endpoints: dot bottom edge → bay top-center
-    var ax=pos.x,ay=pos.y+pos.r+2;
-    var bxp=bay.cx,byp=bay.cy;
-    var my=(ay+byp)/2;
-    // Glow underlay
-    Dot.strokeStyle='rgba(255,58,58,.25)';
-    Dot.lineWidth=5;Dot.setLineDash([]);
-    Dot.beginPath();Dot.moveTo(ax,ay);Dot.bezierCurveTo(ax,my,bxp,my,bxp,byp);Dot.stroke();
-    // Solid red line
-    Dot.strokeStyle='rgba(255,58,58,'+pulse.toFixed(2)+')';
-    Dot.lineWidth=1.8;
-    Dot.beginPath();Dot.moveTo(ax,ay);Dot.bezierCurveTo(ax,my,bxp,my,bxp,byp);Dot.stroke();
-    // Arrowhead at the bay end
-    Dot.fillStyle='rgba(255,58,58,.95)';
-    Dot.beginPath();
-    Dot.moveTo(bxp-4,byp-6);Dot.lineTo(bxp+4,byp-6);Dot.lineTo(bxp,byp);Dot.closePath();Dot.fill();
+function drawFreeDocsPool(bx,by,bw,bh,treatmentPatients,resusPatients){
+  freePoolBox={x:bx,y:by,w:bw,h:bh};
+  var col=C.teal,rgb=h2r(col);
+  Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.08)';
+  Dot.beginPath();rr(Dot,bx,by,bw,bh,4);Dot.fill();
+  Dot.strokeStyle=col;Dot.lineWidth=.8;Dot.globalAlpha=.65;
+  Dot.beginPath();rr(Dot,bx,by,bw,bh,4);Dot.stroke();Dot.globalAlpha=1;
+  // Free doctors = no active cases
+  var free=(curDoctors||[]).filter(function(d){return (d.active||0)===0;});
+  Dot.fillStyle=col;Dot.font='800 7px Syne';Dot.textAlign='left';Dot.textBaseline='top';
+  Dot.fillText('FREE DOCS \u00b7 '+free.length+'/'+(curDoctors||[]).length,bx+5,by+4);
+}
+
+function drawDoctorsAtPatients(treatmentPatients,resusPatients){
+  if(!curDoctors||!curDoctors.length)return;
+  // Map patient_id -> assigned doctor name (from snapshot)
+  var patientDoc={};
+  (treatmentPatients||[]).concat(resusPatients||[]).forEach(function(p){
+    if(p.doctor)patientDoc[p.id]=p.doctor;
   });
-  Dot.restore();
+  // For each doctor, find which patient they're with
+  var freeIdx=0;
+  curDoctors.forEach(function(d){
+    var withPid=null;
+    Object.keys(patientDoc).forEach(function(pid){
+      if(patientDoc[pid]===d.name||patientDoc[pid]===d.id)withPid=pid;
+    });
+    if(withPid){
+      // Doctor sits next to their patient
+      var bed=bedPositions[withPid];
+      var res=resusPositions[withPid];
+      var pos=bed||res; if(!pos)return;
+      var dx=pos.x+12, dy=pos.y+2;
+      // For bed: place slightly below patient dot if there's room
+      if(bed){dx=pos.x; dy=pos.y+16;}
+      drawDoctorDot(d,dx,dy,res?true:false);
+    }else{
+      // Free doctor — render in pool
+      drawDoctorInPool(d,freeIdx++);
+    }
+  });
+}
+
+function drawDoctorDot(d,dx,dy,emergency){
+  var col=emergency?C.red:C.teal;
+  var rgb=h2r(col);
+  // Pulsing glow halo
+  var pulse=.35+.25*Math.abs(Math.sin(simT*(emergency?4:2)));
+  var halo=Dot.createRadialGradient(dx,dy,0,dx,dy,12);
+  halo.addColorStop(0,'rgba('+rgb.r+','+rgb.g+','+rgb.b+','+pulse.toFixed(2)+')');
+  halo.addColorStop(1,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',0)');
+  Dot.fillStyle=halo;Dot.beginPath();Dot.arc(dx,dy,12,0,6.28);Dot.fill();
+  // Outline
+  Dot.strokeStyle='rgba(255,255,255,.7)';Dot.lineWidth=1.2;
+  Dot.beginPath();Dot.arc(dx,dy,6,0,6.28);Dot.stroke();
+  // Filled dot
+  Dot.fillStyle=col;Dot.beginPath();Dot.arc(dx,dy,5.5,0,6.28);Dot.fill();
+  // Initial inside
+  var nm=(d.name||d.id||'').replace('Dr. ','');
+  Dot.fillStyle='#03080f';Dot.font='800 7px Syne Mono';
+  Dot.textAlign='center';Dot.textBaseline='middle';
+  Dot.fillText(nm.charAt(0).toUpperCase(),dx,dy+.5);
+  // Name below
+  Dot.fillStyle=col;Dot.font='700 6px Syne Mono';Dot.textBaseline='top';
+  Dot.fillText(nm,dx,dy+8);
+}
+
+function drawDoctorInPool(d,idx){
+  if(!freePoolBox)return;
+  var bx=freePoolBox.x, by=freePoolBox.y, bw=freePoolBox.w, bh=freePoolBox.h;
+  var perRow=Math.max(1,Math.floor((bw-10)/30));
+  var r=Math.floor(idx/perRow), c=idx%perRow;
+  var dx=bx+15+c*30, dy=by+22+r*22;
+  if(dy>by+bh-6)return; // overflow
+  drawDoctorDot(d,dx,dy,false);
 }
 
 function colorForPatient(p){
