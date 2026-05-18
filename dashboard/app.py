@@ -163,7 +163,7 @@ def _render_patient_card(pt: dict) -> None:
             actual_resulted = len(resulted)
             has_critical = any("CRITICAL" in (o.get("result_value") or "").upper() for o in resulted)
             if doc:
-                st.success(f"👨‍⚕️ **{doc}** — auto-assigned by Agent 5")
+                st.success(f"👨‍⚕️ **{doc}** — auto-assigned by Agent 4")
             else:
                 if actual_resulted == 0:
                     st.caption("Waiting for first lab result before assignment")
@@ -173,7 +173,7 @@ def _render_patient_card(pt: dict) -> None:
                         f"{actual_resulted} result(s){' (CRITICAL)' if has_critical else ''}"
                         " — assignment overdue. Click below to assign now.")
                 else:
-                    st.info(f"Agent 5 auto-assigns after 2nd result ({actual_resulted} received)")
+                    st.info(f"Agent 4 auto-assigns after 2nd result ({actual_resulted} received)")
                 if st.button("Assign Doctor Now", key=f"manual_assign_{patient_id}",
                              type="primary" if actual_resulted >= 2 or has_critical else "secondary",
                              use_container_width=True):
@@ -237,7 +237,7 @@ def _render_patient_card(pt: dict) -> None:
                              use_container_width=True):
                     if diagnosis:
                         try:
-                            with st.spinner("Agent 7 generating exit plan..."):
+                            with st.spinner("Agent 6 generating exit plan..."):
                                 er = requests.post(f"{API_URL}/exit/{patient_id}", json={
                                     "disposition": disposition,
                                     "confirmed_diagnosis": diagnosis,
@@ -855,13 +855,6 @@ def _render_live_queue_tab() -> None:
             with st.container(height=520, border=False):
                 _render_patient_card(pt)
 
-    batch_summary = queue_data.get("batch_summary", {})
-    if batch_summary:
-        st.divider()
-        st.markdown("**Batch Summary** (tests shared by 2+ patients)")
-        for test, count in batch_summary.items():
-            st.markdown(f"- {test}: {count} patients")
-
     with st.expander("Doctor Availability", expanded=False):
         dr_status, dr_data = _api_get_json("/doctors", timeout=5)
         if dr_status == 200 and dr_data:
@@ -1057,15 +1050,14 @@ with tab4:
             # Agent status row
             orders = dr.get("workup_orders", [])
             flag_type = dr.get("flag_type") or ("CLEAR" if not dr.get("is_emergency") else "EMERGENCY")
-            c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Agent 1", f"{rs:.0f}%", "Risk Score")
             c2.metric("Agent 2", flag_type[:8], "Red Flag")
             c3.metric("Agent 3", f"{len(orders)} orders", "Workup")
-            c4.metric("Agent 4", "pending", "Batch")
-            c5.metric("Agent 5", "deferred", "Load Bal.")
-            c6.metric("Agent 6", "deferred", "Disposition")
-            c7.metric("Agent 7", "deferred", "Exit Coord.")
-            st.caption("Agents 5–7 fire automatically after lab results arrive.")
+            c4.metric("Agent 4", "deferred", "Load Bal.")
+            c5.metric("Agent 5", "deferred", "Disposition")
+            c6.metric("Agent 6", "deferred", "Exit Coord.")
+            st.caption("Agents 4–6 fire automatically after lab results arrive.")
 
             # Workup table
             if orders:
@@ -1227,13 +1219,12 @@ with tab5, st.container(height=600, border=False):
         stats = an.get("session_stats", {})
         comp  = an.get("comparison", {})
 
-        s1, s2, s3, s4, s5 = st.columns(5)
+        s1, s2, s3, s4 = st.columns(4)
         s1.metric("Patients Today", stats.get("total_patients_today", 0))
         s2.metric("Still Waiting",  stats.get("still_waiting", 0))
         red_n = stats.get("red_zone_count", 0)
         s3.metric("Red Zone", red_n, delta="⚠️" if red_n > 0 else None)
         s4.metric("Avg Wait", f"{stats.get('mean_wait_minutes_current', 0):.0f} min")
-        s5.metric("Batch Efficiency", f"{stats.get('batch_efficiency_pct', 0):.0f}%")
 
         esi_dist = stats.get("esi_distribution", {})
         if any(v > 0 for v in esi_dist.values()):

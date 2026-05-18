@@ -125,7 +125,7 @@ async def run_disposition_forecast(inp: DispositionInput, llm: LLMClient) -> Dis
         try:
             from src.database.db import log_agent_action
             await log_agent_action(
-                patient_id=inp.intake.patient_id, agent_id=6,
+                patient_id=inp.intake.patient_id, agent_id=5,
                 action="bed_reservation_sent",
                 inputs_summary=f"admit_pct={vals['admit_pct']}%",
                 outputs_summary="Provisional bed requested",

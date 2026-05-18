@@ -38,7 +38,7 @@ class ScoreUpdateEvent:
 
 
 def should_auto_assign(result: LabResult, result_count: int, already_assigned: bool) -> bool:
-    """Returns True when Agent 5 should fire autonomously after a lab result."""
+    """Returns True when Agent 4 should fire autonomously after a lab result."""
     if already_assigned:
         return False
     if result.is_critical:
@@ -80,7 +80,7 @@ async def update_score_on_result(
 
     # ── Step 1 (FIRST, never skipped): Increment result count + auto-assign ──
     # Done BEFORE the LLM rescore so a slow / failing LLM can never block
-    # Agent 5 from assigning a doctor.
+    # Agent 4 from assigning a doctor.
     queue = get_queue()
     new_result_count, current_doctor = await queue.increment_result_count(result.patient_id)
     already_assigned = bool(current_doctor or patient_record.get("assigned_doctor"))
@@ -95,7 +95,7 @@ async def update_score_on_result(
                 await queue.unassign_doctor(assignment.bumped_patient_id)
             try:
                 await log_agent_action(
-                    patient_id=result.patient_id, agent_id=5,
+                    patient_id=result.patient_id, agent_id=4,
                     action="auto_assign_on_result",
                     inputs_summary=f"ESI-{esi} | count={new_result_count} | critical={result.is_critical} | test={result.test_name}",
                     outputs_summary=f"→ {assignment.assigned_doctor.name} ({assignment.assigned_doctor.role.value})",
@@ -104,7 +104,7 @@ async def update_score_on_result(
             except Exception:
                 pass
             logger.info(
-                "Agent 5 auto-assigned: patient %s → %s (triggered by %s)",
+                "Agent 4 auto-assigned: patient %s → %s (triggered by %s)",
                 result.patient_id[:8], assignment.assigned_doctor.name, result.test_name,
             )
 

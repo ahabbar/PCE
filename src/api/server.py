@@ -13,7 +13,6 @@ from src.core.patient import IntakeForm, OrderItem, TriageScoreResult, RedFlagRe
 from src.core.esi_algorithm import ESIResult
 from src.orchestrator.engine import process_patient, TriageResult
 from src.orchestrator.queue import get_queue
-from src.agents.batch import get_batch_coordinator
 from src.database.db import (
     init_db, get_patient, get_waiting_patients, get_recent_patients,
     save_patient_basic, clear_non_permanent_patients,
@@ -73,7 +72,6 @@ class QueueResponse(BaseModel):
     total: int
     reds_count: int
     queue_depth: int
-    batch_summary: dict[str, int]
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -345,15 +343,12 @@ async def get_queue_status():
         )
 
     reds_count = sum(1 for p in patients_out if p.is_red)
-    bc = get_batch_coordinator()
-    batch_summary = bc.get_batch_summary()
 
     return QueueResponse(
         patients=patients_out,
         total=len(patients_out),
         reds_count=reds_count,
         queue_depth=len(patients_out),
-        batch_summary=batch_summary,
     )
 
 
@@ -485,10 +480,10 @@ async def health():
         "status": "ok",
         "db": "ok",
         "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
-        "agents": 7,
-        "agents_active_intake": ["1_triage", "2_red_flag", "3_workup", "4_batch", "6_disposition"],
-        "agents_conditional": ["5_load_balancer"],
-        "agents_on_exit": ["7_exit_coord"],
+        "agents": 6,
+        "agents_active_intake": ["1_triage", "2_red_flag", "3_workup", "5_disposition"],
+        "agents_conditional": ["4_load_balancer"],
+        "agents_on_exit": ["6_exit_coord"],
         "queue_loaded_from_db": getattr(app.state, "queue_loaded", 0),
     }
 
@@ -604,11 +599,6 @@ async def get_analytics():
     waits = [(now - p.intake.arrival_time) / 60 for p in queue_patients]
     mean_wait = sum(waits) / len(waits) if waits else 0.0
 
-    batch_summary = get_batch_coordinator().get_batch_summary()
-    total_orders = sum(batch_summary.values()) if batch_summary else 0
-    batched_orders = sum(v for v in batch_summary.values() if v > 1)
-    batch_eff = round(batched_orders / total_orders * 100, 1) if total_orders else 0.0
-
     return {
         "session_stats": {
             "total_patients_today": total,
@@ -620,7 +610,6 @@ async def get_analytics():
             "mean_risk_score": round(mean_score, 1),
             "red_zone_count": red_zone,
             "mean_wait_minutes_current": round(mean_wait, 1),
-            "batch_efficiency_pct": batch_eff,
         },
         "comparison": {
             "traditional": {

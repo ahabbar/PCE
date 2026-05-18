@@ -10,7 +10,6 @@ from src.agents.llm import get_llm_client
 from src.agents.triage_score import run_triage_score, get_dynamic_threshold
 from src.agents.red_flag import run_red_flag_guardian
 from src.agents.workup import run_preemptive_workup
-from src.agents.batch import get_batch_coordinator
 from src.agents.disposition import run_disposition_forecast, DispositionInput
 from src.core.whitelist import ProtocolWhitelist
 from src.database.db import save_patient, save_investigation_orders, log_agent_action, set_patient_disposition
@@ -57,7 +56,7 @@ async def try_cascade_assignment(freed_doctor_name: str | None = None) -> list[d
             await queue.unassign_doctor(assignment.bumped_patient_id)
         try:
             await log_agent_action(
-                patient_id=patient.intake.patient_id, agent_id=5,
+                patient_id=patient.intake.patient_id, agent_id=4,
                 action="cascade_assign_on_doctor_freed",
                 inputs_summary=f"Freed: {freed_doctor_name or 'unknown'} | ESI-{esi} | count={patient.result_count}",
                 outputs_summary=f"→ {assignment.assigned_doctor.name} ({assignment.assigned_doctor.role.value})",
@@ -70,7 +69,7 @@ async def try_cascade_assignment(freed_doctor_name: str | None = None) -> list[d
             "assigned_to": assignment.assigned_doctor.name,
             "reason": f"cascade: {freed_doctor_name} became free",
         })
-        logger.info("Agent 5 cascade: %s → %s", patient.intake.patient_id[:8], assignment.assigned_doctor.name)
+        logger.info("Agent 4 cascade: %s → %s", patient.intake.patient_id[:8], assignment.assigned_doctor.name)
         break  # one slot freed = one assignment
 
     return assignments_made
@@ -184,15 +183,7 @@ async def process_patient(
         whitelist = ProtocolWhitelist()
         workup = await run_preemptive_workup(intake, triage_score, llm, whitelist)
 
-    # Step 6b: Agent 4 — feed orders into batch coordinator so /queue sees real
-    # batch groupings instead of an empty dict.
-    if workup and workup.orders:
-        try:
-            get_batch_coordinator().add_orders(intake.patient_id, workup, esi_result.esi_level)
-        except Exception as exc:
-            logger.warning("Agent 4 (batch) failed: %s", exc, exc_info=True)
-
-    # Step 6c: Agent 6 — disposition forecast. Runs after workup so it can
+    # Step 6b: Agent 5 — disposition forecast (was 6, renumbered after Batch removed). Runs after workup so it can
     # see what's been ordered. Persisted to disposition_prediction column;
     # later overwritten by set_patient_disposition() at finalization.
     disposition_pred = None
@@ -208,7 +199,7 @@ async def process_patient(
             disposition_pred = await run_disposition_forecast(disp_inp, llm)
             await set_patient_disposition(intake.patient_id, disposition_pred.predicted_destination)
         except Exception as exc:
-            logger.warning("Agent 6 (disposition) failed: %s", exc, exc_info=True)
+            logger.warning("Agent 5 (disposition) failed: %s", exc, exc_info=True)
 
     total_latency_ms = (time.monotonic() - t0) * 1000
 
@@ -242,18 +233,10 @@ async def process_patient(
                     total_latency_ms, "gemini",
                 )
             )
-            tasks.append(
-                log_agent_action(
-                    intake.patient_id, 4, "batch_add",
-                    f"orders={len(workup.orders)} esi={esi_result.esi_level}",
-                    f"pending={get_batch_coordinator().pending_count()}",
-                    0, "rules",
-                )
-            )
         if disposition_pred:
             tasks.append(
                 log_agent_action(
-                    intake.patient_id, 6, "disposition_forecast",
+                    intake.patient_id, 5, "disposition_forecast",
                     f"is_red={is_red}",
                     (
                         f"dest={disposition_pred.predicted_destination} "

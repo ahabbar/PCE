@@ -129,8 +129,8 @@ var curPatients={};
 var curDoctors=[]; // [{id,name,role,active,max,load_pct,patients:[]}]
 var curBedCapacity=10;
 var curDispoCounts={discharge:0,admit:0,icu:0,transfer:0};
-var agentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
-var prevAgentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
+var agentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0};
+var prevAgentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0};
 var snapTs=0;
 // Wall-clock time (seconds) at which the latest snapshot was received.
 // Used to smoothly extrapolate per-patient wait time + ICU countdown
@@ -178,13 +178,12 @@ var ZONES={
   admit:     {rx:.69,ry:.27,rw:.09,rh:.10,lbl:'Ward\nAdmit',col:C.blue},
   icu:       {rx:.69,ry:.38,rw:.09,rh:.10,lbl:'ICU\nAdmit',col:C.red},
   transfer:  {rx:.69,ry:.49,rw:.09,rh:.10,lbl:'Transfer\nOut',col:C.amber},
-  a1:{rx:.04,ry:.75,rw:.10,rh:.13,lbl:'A1\nRisk Score\nGemini Flash',col:C.orange},
-  a2:{rx:.16,ry:.75,rw:.10,rh:.13,lbl:'A2\nRed Flag\nT=0.0',col:C.red},
-  a3:{rx:.28,ry:.75,rw:.10,rh:.13,lbl:'A3\nWorkup\nWhitelist',col:C.teal},
-  a4:{rx:.40,ry:.75,rw:.10,rh:.13,lbl:'A4\nBatch\nPure Logic',col:C.yellow},
-  a5:{rx:.52,ry:.75,rw:.10,rh:.13,lbl:'A5\nLoad Bal\nPure Logic',col:C.purple},
-  a6:{rx:.64,ry:.75,rw:.10,rh:.13,lbl:'A6\nDisposition\nGemini Pro',col:C.blue},
-  a7:{rx:.76,ry:.75,rw:.10,rh:.13,lbl:'A7\nExit\nGemini Flash',col:C.green},
+  a1:{rx:.10,ry:.75,rw:.10,rh:.13,lbl:'A1\nRisk Score\nGemini Flash',col:C.orange},
+  a2:{rx:.22,ry:.75,rw:.10,rh:.13,lbl:'A2\nRed Flag\nT=0.0',col:C.red},
+  a3:{rx:.34,ry:.75,rw:.10,rh:.13,lbl:'A3\nWorkup\nWhitelist',col:C.teal},
+  a4:{rx:.46,ry:.75,rw:.10,rh:.13,lbl:'A4\nLoad Bal\nPure Logic',col:C.purple},
+  a5:{rx:.58,ry:.75,rw:.10,rh:.13,lbl:'A5\nDisposition\nGemini Flash',col:C.blue},
+  a6:{rx:.70,ry:.75,rw:.10,rh:.13,lbl:'A6\nExit\nGemini Flash',col:C.green},
 };
 
 function zc(k){var z=ZONES[k];return{x:x(z.rx+z.rw/2),y:y(z.ry+z.rh/2)};}
@@ -238,7 +237,7 @@ function drawBg(){
   Bg.textAlign='left';
   Bg.fillStyle=C.orange;Bg.fillText('\u25b8 PCE AGENTS \u2014 7 PARALLEL AGENTS (asyncio.gather)',x(.01),y(.71));
   ['arrival','triage','waiting','resus','treatment','lab','imaging','pharmacy','discharge','admit','icu','transfer'].forEach(function(k){drawZone(Bg,k);});
-  ['a1','a2','a3','a4','a5','a6','a7'].forEach(function(k){drawZone(Bg,k,.28);});
+  ['a1','a2','a3','a4','a5','a6'].forEach(function(k){drawZone(Bg,k,.28);});
   // HIS/EHR chip inside the triage zone (upper-right corner)
   drawHisChip(Bg);
   // Treatment area title (drawn at top inside the box; sub-bays drawn on Dot canvas)
@@ -261,9 +260,9 @@ function drawBg(){
   conn(Bg,zc('treatment').x,zc('treatment').y,zc('lab').x,zc('lab').y,C.yellow,true);
   conn(Bg,zc('treatment').x,zc('treatment').y,zc('imaging').x,zc('imaging').y,C.amber,true);
   conn(Bg,zc('treatment').x,zc('treatment').y,zc('pharmacy').x,zc('pharmacy').y,C.purple,true);
-  var ag=['a1','a2','a3','a4','a5','a6','a7'];
-  for(var i=0;i<6;i++)conn(Bg,zc(ag[i]).x,zc(ag[i]).y,zc(ag[i+1]).x,zc(ag[i+1]).y,C.teal,true,.5);
-  [['triage','a1',C.orange],['triage','a2',C.red],['waiting','a3',C.teal],['lab','a4',C.yellow],['treatment','a5',C.purple],['treatment','a6',C.blue],['discharge','a7',C.green]].forEach(function(v){
+  var ag=['a1','a2','a3','a4','a5','a6'];
+  for(var i=0;i<5;i++)conn(Bg,zc(ag[i]).x,zc(ag[i]).y,zc(ag[i+1]).x,zc(ag[i+1]).y,C.teal,true,.5);
+  [['triage','a1',C.orange],['triage','a2',C.red],['waiting','a3',C.teal],['treatment','a4',C.purple],['treatment','a5',C.blue],['discharge','a6',C.green]].forEach(function(v){
     Bg.save();Bg.globalAlpha=.18;Bg.strokeStyle=v[2];Bg.lineWidth=1;Bg.setLineDash([3,6]);
     Bg.beginPath();Bg.moveTo(zc(v[0]).x,zc(v[0]).y);Bg.lineTo(zc(v[1]).x,zc(v[1]).y);Bg.stroke();Bg.setLineDash([]);Bg.restore();
   });
@@ -290,7 +289,7 @@ function applySnapshot(snap){
 
   // Agent activity — keep counts in sync for the side panel only (no particles)
   var newCounts=snap.agents||{};
-  ['A1','A2','A3','A4','A5','A6','A7'].forEach(function(k){
+  ['A1','A2','A3','A4','A5','A6'].forEach(function(k){
     agentCounts[k]=newCounts[k]||0;
   });
 
@@ -312,8 +311,8 @@ function applySnapshot(snap){
 }
 
 // ─── Agent panel ──────────────────────────────────────────────────────
-var ACON=[{n:'A1',c:C.orange},{n:'A2',c:C.red},{n:'A3',c:C.teal},{n:'A4',c:C.yellow},{n:'A5',c:C.purple},{n:'A6',c:C.blue},{n:'A7',c:C.green}];
-var ANAME={A1:'Risk Score',A2:'Red Flag',A3:'Workup',A4:'Batch',A5:'Load Bal.',A6:'Disposition',A7:'Exit'};
+var ACON=[{n:'A1',c:C.orange},{n:'A2',c:C.red},{n:'A3',c:C.teal},{n:'A4',c:C.purple},{n:'A5',c:C.blue},{n:'A6',c:C.green}];
+var ANAME={A1:'Risk Score',A2:'Red Flag',A3:'Workup',A4:'Load Bal.',A5:'Disposition',A6:'Exit'};
 function drawAgentPanel(){
   var el=document.getElementById('aSt');
   if(!el._i){
@@ -809,7 +808,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v13 (speed lock-in)',
+    'BUILD:   v14 (6 agents)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,

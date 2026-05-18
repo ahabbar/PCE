@@ -7,7 +7,6 @@ import asyncio, uuid, time
 from src.database.db import init_db
 from src.orchestrator.engine import process_patient
 from src.orchestrator.queue import get_queue
-from src.agents.batch import get_batch_coordinator
 from src.core.patient import IntakeForm, Vitals, ChiefComplaint, MedicalHistory, NurseObservation
 
 PATIENTS = [
@@ -53,7 +52,6 @@ PATIENTS = [
 async def main():
     await init_db()
     q = get_queue()
-    bc = get_batch_coordinator()
     print("\nProcessing 5 patients...\n")
 
     for p in PATIENTS:
@@ -72,8 +70,6 @@ async def main():
         )
         r = await process_patient(intake, patient_load=5)
         await q.add_patient(r)
-        if r.workup:
-            bc.add_orders(r.intake.patient_id, r.workup, r.esi_result.esi_level)
         print(
             f"  Pt {r.intake.age_years:.0f}{r.intake.gender[0].upper()}"
             f"  ESI-{r.esi_result.esi_level}"
@@ -91,13 +87,6 @@ async def main():
             f"  {i}. {pt.intake.chief_complaint.free_text_en[:30]:<30}"
             f"  Score:{score:.0f}%  Red:{red}"
         )
-
-    print("\n── Batch Summary ──")
-    for test, count in bc.get_batch_summary().items():
-        print(f"  {test} x {count} patients")
-    eff = bc.batch_efficiency_pct()
-    print(f"  Efficiency: {eff:.0f}%")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

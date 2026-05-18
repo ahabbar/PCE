@@ -124,7 +124,7 @@ async def run_exit_coordinator(inp: ExitInput, llm: LLMClient) -> ExitPlan:
     try:
         from src.database.db import log_agent_action
         await log_agent_action(
-            patient_id=inp.intake.patient_id, agent_id=7,
+            patient_id=inp.intake.patient_id, agent_id=6,
             action="exit_plan_generated",
             inputs_summary=f"disposition={inp.disposition.value}, diagnosis={inp.confirmed_diagnosis[:50]}",
             outputs_summary=f"plan generated for {inp.disposition.value}",

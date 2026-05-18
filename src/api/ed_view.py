@@ -105,7 +105,7 @@ def _patient_to_dict(p) -> dict:
 async def _agent_counts_in_window(window_sec: int) -> dict[str, int]:
     """Count audit_log entries per agent_id in the last `window_sec` seconds."""
     cutoff = time.time() - window_sec
-    counts = {f"A{i}": 0 for i in range(1, 8)}
+    counts = {f"A{i}": 0 for i in range(1, 7)}
     try:
         async with aiosqlite.connect(_DB_PATH) as db:
             cursor = await db.execute(
@@ -115,7 +115,7 @@ async def _agent_counts_in_window(window_sec: int) -> dict[str, int]:
             )
             rows = await cursor.fetchall()
         for agent_id, count in rows:
-            if 1 <= int(agent_id) <= 7:
+            if 1 <= int(agent_id) <= 6:
                 counts[f"A{int(agent_id)}"] = int(count)
     except Exception as exc:
         logger.debug("agent_counts query failed: %s", exc)
