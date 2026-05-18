@@ -35,9 +35,14 @@ body::before{content:'';position:fixed;inset:0;
 #vis{position:relative;overflow:hidden}
 canvas{position:absolute;inset:0}
 #cBg{z-index:1}#cPt{z-index:2}#cDot{z-index:3}
-.pnl{position:absolute;z-index:10;background:rgba(6,16,28,.92);border:1px solid var(--border);border-radius:6px;padding:11px 13px;backdrop-filter:blur(4px)}
-#leg{right:12px;top:10px;min-width:160px}
-#met{left:12px;top:10px;width:208px}
+.pnl{position:absolute;z-index:10;background:rgba(6,16,28,.78);border:1px solid var(--border);border-radius:5px;padding:6px 8px;backdrop-filter:blur(4px);font-size:9px;opacity:.65;transition:opacity .15s}
+.pnl:hover{opacity:1}
+.pnl.collapsed .pbody{display:none}
+.pnl.collapsed{padding:4px 8px}
+.pcollap{position:absolute;top:3px;right:5px;cursor:pointer;color:var(--muted);font-size:11px;font-family:var(--mono);line-height:1;user-select:none}
+.pcollap:hover{color:var(--teal)}
+#leg{right:6px;top:6px;width:140px}
+#met{left:6px;top:6px;width:170px}
 .pt{font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)}
 .lr{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-size:10px}
 .ll{width:22px;height:2px;border-radius:1px;flex-shrink:0}
@@ -70,32 +75,38 @@ canvas{position:absolute;inset:0}
   <canvas id="cPt"></canvas>
   <canvas id="cDot"></canvas>
   <div class="pnl" id="leg">
+    <div class="pcollap" onclick="togPnl('leg')">&#9776;</div>
     <div class="pt">Pathways</div>
-    <div class="lr"><div class="ll" style="background:#ff3a3a"></div>ESI-1 Resus (excluded)</div>
-    <div class="lr"><div class="ll" style="background:#ff8c00"></div>ESI-2 Emergent</div>
-    <div class="lr"><div class="ll" style="background:#f5c518"></div>ESI-3/4 Standard</div>
-    <div class="lr"><div class="ll" style="background:#4da6ff"></div>ESI-5 Lite</div>
-    <div class="sp"></div>
-    <div class="pt">Data Flows</div>
-    <div class="lr"><div class="ld" style="background:#00e5c8"></div>Agent pulse</div>
-    <div class="lr"><div class="ld" style="background:#f5c518"></div>Lab result</div>
-    <div class="lr"><div class="ld" style="background:#c084fc"></div>Doctor assign</div>
-    <div class="lr"><div class="ld" style="background:#00e07a"></div>Patient (PCE)</div>
+    <div class="pbody">
+      <div class="lr"><div class="ll" style="background:#ff3a3a"></div>ESI-1 Resus (excluded)</div>
+      <div class="lr"><div class="ll" style="background:#ff8c00"></div>ESI-2 Emergent</div>
+      <div class="lr"><div class="ll" style="background:#f5c518"></div>ESI-3 Urgent</div>
+      <div class="lr"><div class="ll" style="background:#00e07a"></div>ESI-4/5 Less-urgent</div>
+      <div class="sp"></div>
+      <div class="pt">Data Flows</div>
+      <div class="lr"><div class="ld" style="background:#00e5c8"></div>Agent pulse</div>
+      <div class="lr"><div class="ld" style="background:#f5c518"></div>Lab result</div>
+      <div class="lr"><div class="ld" style="background:#c084fc"></div>Doctor assign</div>
+      <div class="lr"><div class="ld" style="background:#00e07a"></div>Patient (PCE)</div>
+    </div>
   </div>
   <div class="pnl" id="met">
+    <div class="pcollap" onclick="togPnl('met')">&#9776;</div>
     <div class="pt">Live Metrics</div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">Patients in ED</span><span class="mv" id="mIn" style="color:#00e5c8">0</span></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">Waiting</span><span class="mv" id="mWa" style="color:#f5c518">0</span></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">In bed (workup)</span><span class="mv" id="mIb" style="color:#ff8c00">0</span></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">With doctor</span><span class="mv" id="mDo" style="color:#4da6ff">0</span></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">Processed today</span><span class="mv" id="mPr" style="color:#00e07a">0</span></div>
-    <div class="sp"></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">Avg wait — PCE</span><span class="mv" id="mW1" style="color:#00e07a">—</span></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">Avg wait — Traditional</span><span class="mv" id="mW2" style="color:#ff3a3a">85min</span></div>
-    <div class="mr"><span style="color:#3a5570;font-size:10px">Lab utilisation</span><span class="mv" id="mLu" style="color:#f5c518">0%</span></div>
-    <div class="sp"></div>
-    <div class="pt">Agent activity (5s window)</div>
-    <div id="aSt"></div>
+    <div class="pbody">
+      <div class="mr"><span style="color:#3a5570;font-size:10px">Patients in ED</span><span class="mv" id="mIn" style="color:#00e5c8">0</span></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">Waiting</span><span class="mv" id="mWa" style="color:#f5c518">0</span></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">In bed (workup)</span><span class="mv" id="mIb" style="color:#ff8c00">0</span></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">With doctor</span><span class="mv" id="mDo" style="color:#4da6ff">0</span></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">Processed today</span><span class="mv" id="mPr" style="color:#00e07a">0</span></div>
+      <div class="sp"></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">Avg wait — PCE</span><span class="mv" id="mW1" style="color:#00e07a">—</span></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">Avg wait — Traditional</span><span class="mv" id="mW2" style="color:#ff3a3a">85min</span></div>
+      <div class="mr"><span style="color:#3a5570;font-size:10px">Lab utilisation</span><span class="mv" id="mLu" style="color:#f5c518">0%</span></div>
+      <div class="sp"></div>
+      <div class="pt">Agent activity (5s window)</div>
+      <div id="aSt"></div>
+    </div>
   </div>
 </div>
 </div>
@@ -146,9 +157,8 @@ var ZONES={
   arrival:   {rx:.01,ry:.22,rw:.08,rh:.20,lbl:'Patient\nArrival',col:C.muted},
   triage:    {rx:.12,ry:.18,rw:.10,rh:.28,lbl:'Triage\nStation\n(Nurse)',col:C.teal},
   waiting:   {rx:.25,ry:.20,rw:.10,rh:.24,lbl:'Waiting\nRoom',col:C.muted},
-  resus:     {rx:.38,ry:.04,rw:.12,rh:.12,lbl:'Resus Bay\nESI-1 Only',col:C.red},
-  majors:    {rx:.38,ry:.19,rw:.12,rh:.18,lbl:'Majors\nESI 2-3',col:C.orange},
-  minors:    {rx:.38,ry:.40,rw:.12,rh:.14,lbl:'Minors\nESI 4-5',col:C.yellow},
+  resus:     {rx:.38,ry:.04,rw:.12,rh:.10,lbl:'Resus Bay\nESI-1 Only',col:C.red},
+  treatment: {rx:.38,ry:.17,rw:.12,rh:.37,lbl:'Treatment Area\nESI 2-5',col:C.orange},
   doctor:    {rx:.54,ry:.14,rw:.11,rh:.20,lbl:'Doctor\nEncounter',col:C.blue},
   lab:       {rx:.54,ry:.48,rw:.11,rh:.14,lbl:'Laboratory\n(LIS)',col:C.yellow},
   imaging:   {rx:.68,ry:.48,rw:.10,rh:.14,lbl:'Radiology\nImaging',col:C.amber},
@@ -197,19 +207,20 @@ function drawBg(){
   Bg.clearRect(0,0,W,H);
   Bg.save();Bg.strokeStyle=C.border;Bg.lineWidth=1;Bg.setLineDash([5,8]);
   Bg.beginPath();Bg.moveTo(x(.01),y(.71));Bg.lineTo(x(.99),y(.71));Bg.stroke();Bg.setLineDash([]);Bg.restore();
-  Bg.font='700 10px Syne';Bg.textAlign='left';Bg.globalAlpha=.6;
-  Bg.fillStyle=C.teal;Bg.fillText('\u25b8 PHYSICAL ED ZONES + RESOURCES',x(.01),y(.15));
+  Bg.font='700 9px Syne';Bg.textAlign='center';Bg.globalAlpha=.55;
+  Bg.fillStyle=C.teal;Bg.fillText('\u25b8 PHYSICAL ED ZONES + RESOURCES',x(.50),y(.13));
+  Bg.textAlign='left';
   Bg.fillStyle=C.orange;Bg.fillText('\u25b8 PCE AGENTS \u2014 7 PARALLEL AGENTS (asyncio.gather)',x(.01),y(.71));
   Bg.strokeStyle=C.red;Bg.lineWidth=1.5;Bg.setLineDash([4,5]);Bg.globalAlpha=.4;
   Bg.strokeRect(x(.37),y(.02),x(.14),y(.15));Bg.setLineDash([]);Bg.globalAlpha=.6;
   Bg.fillStyle=C.red;Bg.font='700 9px Syne Mono';Bg.textAlign='center';Bg.fillText('PCE EXCLUDED \u2014 Direct to Resus',x(.44),y(.015));
   Bg.globalAlpha=1;
-  ['arrival','triage','waiting','resus','majors','minors','doctor','lab','imaging','pharmacy','discharge','admit','transfer','his'].forEach(function(k){drawZone(Bg,k);});
+  ['arrival','triage','waiting','resus','treatment','doctor','lab','imaging','pharmacy','discharge','admit','transfer','his'].forEach(function(k){drawZone(Bg,k);});
   ['a1','a2','a3','a4','a5','a6','a7'].forEach(function(k){drawZone(Bg,k,.28);});
   var pa=[[zc('arrival'),zc('triage'),C.teal],
     [zc('triage'),{x:x(.22),y:y(.31)},zc('waiting'),C.teal],
-    [zc('waiting'),zc('majors'),C.orange],[zc('waiting'),zc('minors'),C.yellow],
-    [zc('majors'),{x:x(.50),y:y(.25)},zc('doctor'),C.blue],
+    [zc('waiting'),zc('treatment'),C.orange],
+    [zc('treatment'),{x:x(.50),y:y(.25)},zc('doctor'),C.blue],
     [zc('doctor'),{x:x(.66),y:y(.19)},zc('discharge'),C.green],
     [zc('doctor'),{x:x(.66),y:y(.31)},zc('admit'),C.blue],
   ];
@@ -218,9 +229,9 @@ function drawBg(){
     else if(p.length===4)conn(Bg,p[0].x,p[0].y,p[2].x,p[2].y,p[3]);
   });
   conn(Bg,zc('triage').x,zc('triage').y,x(.44),y(.10),C.red,false,.4);
-  conn(Bg,zc('majors').x,zc('majors').y,zc('lab').x,zc('lab').y,C.yellow,true);
+  conn(Bg,zc('treatment').x,zc('treatment').y,zc('lab').x,zc('lab').y,C.yellow,true);
   conn(Bg,zc('lab').x,zc('lab').y,zc('doctor').x,zc('doctor').y,C.yellow,true);
-  conn(Bg,zc('majors').x,zc('majors').y,zc('imaging').x,zc('imaging').y,C.amber,true);
+  conn(Bg,zc('treatment').x,zc('treatment').y,zc('imaging').x,zc('imaging').y,C.amber,true);
   conn(Bg,zc('imaging').x,zc('imaging').y,zc('doctor').x,zc('doctor').y,C.amber,true);
   conn(Bg,zc('doctor').x,zc('doctor').y,zc('pharmacy').x,zc('pharmacy').y,C.purple,true);
   conn(Bg,zc('his').x,zc('his').y,zc('triage').x,zc('triage').y,C.blue,true);
@@ -263,16 +274,13 @@ function spawn(pathPts,col,sp,sz,lbl){parts.push(new Prt(pathPts,col,sp||.15,sz|
 // Path templates for transitions
 function pathArrivalToWaiting(){return [zc('arrival'),zc('triage'),{x:x(.22),y:y(.31)},zc('waiting')];}
 function pathWaitingToBed(esi){
-  var dest=esi<=3?zc('majors'):zc('minors');
-  return [zc('waiting'),dest];
+  return [zc('waiting'),zc('treatment')];
 }
 function pathBedToDoctor(esi){
-  var src=esi<=3?zc('majors'):zc('minors');
-  return [src,{x:x(.50),y:y(.25)},zc('doctor')];
+  return [zc('treatment'),{x:x(.50),y:y(.25)},zc('doctor')];
 }
 function pathLabCycle(esi){
-  var src=esi<=3?zc('majors'):zc('minors');
-  return [src,{x:x(.50),y:y(.56)},zc('lab'),{x:x(.58),y:y(.35)},zc('doctor')];
+  return [zc('treatment'),{x:x(.50),y:y(.56)},zc('lab'),{x:x(.58),y:y(.35)},zc('doctor')];
 }
 function pathDoctorToDischarge(dest){
   if(dest==='admit')return [zc('doctor'),{x:x(.66),y:y(.31)},zc('admit')];
@@ -385,7 +393,7 @@ function drawAgentPanel(){
 // ─── Patient dots inside zones ────────────────────────────────────────
 function zoneFor(p){
   if(p.status==='waiting')return 'waiting';
-  if(p.status==='workup'||p.status==='results')return p.esi<=3?'majors':'minors';
+  if(p.status==='workup'||p.status==='results')return 'treatment';
   if(p.status==='assigned')return 'doctor';
   if(p.status==='discharged')return 'discharge';
   return 'waiting';
@@ -539,6 +547,7 @@ requestAnimationFrame(loop);
 // ─── Controls ─────────────────────────────────────────────────────────
 function tog(){play=!play;var b=document.getElementById('bPlay');b.textContent=play?'\u23F8 Pause':'\u25B6 Resume';b.className=play?'btn on':'btn';if(play)last=null;}
 function spd(s){speed=s;['s1','s2','s4'].forEach(function(id){document.getElementById(id).className='btn';});document.getElementById('s'+s).className='btn on';}
+function togPnl(id){var el=document.getElementById(id);if(el)el.classList.toggle('collapsed');}
 
 // ─── Diagnostics overlay (so we can SEE what's failing) ──────────────
 var DIAG={html:'loaded',canvas:'pending',sse:'idle',sseUrl:'',lastErr:'',snapCount:0};
