@@ -214,6 +214,11 @@ class DoctorLoadBalancer:
         return None
 
     def _add_case(self, doctor: "Doctor", patient_id: str, esi_level: int, service_time: int) -> None:
+        # Idempotency: if this patient is already on ANY doctor (stale state
+        # from a prior cascade), remove the old case first so the patient is
+        # only ever on one doctor at a time.
+        for d in self._doctors:
+            d.active_cases = [c for c in d.active_cases if c.patient_id != patient_id]
         case = ActiveCase(
             patient_id=patient_id,
             esi_level=esi_level,
@@ -254,12 +259,14 @@ class DoctorLoadBalancer:
 
 
 def create_default_doctor_pool() -> list[Doctor]:
+    # 1:1 model — each doctor is exclusively with one patient at a time and
+    # physically moves to the next bed when freed (max_cases=1).
     return [
-        Doctor("DR1", "Dr. Rahman",  DoctorRole.CONSULTANT,       max_cases=2),
-        Doctor("DR2", "Dr. Chen",    DoctorRole.SENIOR_REGISTRAR,  max_cases=2),
-        Doctor("DR3", "Dr. Patel",   DoctorRole.REGISTRAR,         max_cases=2),
-        Doctor("DR4", "Dr. Okafor",  DoctorRole.SHO,               max_cases=2),
-        Doctor("DR5", "Dr. Al-Sayd", DoctorRole.SHO,               max_cases=2),
+        Doctor("DR1", "Doc1", DoctorRole.CONSULTANT,       max_cases=1),
+        Doctor("DR2", "Doc2", DoctorRole.SENIOR_REGISTRAR, max_cases=1),
+        Doctor("DR3", "Doc3", DoctorRole.REGISTRAR,        max_cases=1),
+        Doctor("DR4", "Doc4", DoctorRole.SHO,              max_cases=1),
+        Doctor("DR5", "Doc5", DoctorRole.SHO,              max_cases=1),
     ]
 
 

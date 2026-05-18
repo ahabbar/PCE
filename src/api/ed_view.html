@@ -562,13 +562,15 @@ function drawDoctorDot(d,dx,dy,emergency){
   Dot.beginPath();Dot.arc(dx,dy,6,0,6.28);Dot.stroke();
   // Filled dot
   Dot.fillStyle=col;Dot.beginPath();Dot.arc(dx,dy,5.5,0,6.28);Dot.fill();
-  // Initial inside
+  // Digit suffix (Doc1 → "1") inside dot, fall back to first char
   var nm=(d.name||d.id||'').replace('Dr. ','');
+  var m=nm.match(/\d+$/);
+  var glyph=m?m[0]:nm.charAt(0).toUpperCase();
   Dot.fillStyle='#03080f';Dot.font='800 7px Syne Mono';
   Dot.textAlign='center';Dot.textBaseline='middle';
-  Dot.fillText(nm.charAt(0).toUpperCase(),dx,dy+.5);
+  Dot.fillText(glyph,dx,dy+.5);
   // Name below
-  Dot.fillStyle=col;Dot.font='700 6px Syne Mono';Dot.textBaseline='top';
+  Dot.fillStyle=col;Dot.font='700 7px Syne Mono';Dot.textBaseline='top';
   Dot.fillText(nm,dx,dy+8);
 }
 
