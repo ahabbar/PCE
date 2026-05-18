@@ -238,54 +238,68 @@ class DoctorLoadBalancer:
         incoming_sev: tuple[int, float],
         preferred_roles: list[DoctorRole],
     ) -> Optional[tuple["Doctor", "ActiveCase"]]:
-        """Find a STRICTLY less-severe victim that can be bumped to free a
-        doctor for the incoming patient. ESI-1 victims are never bumped.
-        Prefers victims on doctors whose role is preferred for the incoming
-        patient; within that, picks the LEAST-severe victim (largest
-        severity tuple) to minimise harm. Returns (doctor, victim) or None.
+        """Wrapper around _pick_least_severe_victim. Bump only if a victim
+        is STRICTLY less severe than the incoming patient."""
+        return self._pick_least_severe_victim(incoming_sev, preferred_roles)
+
+    def _pick_least_severe_victim(
+        self,
+        incoming_sev: tuple[int, float],
+        preferred_roles: list[DoctorRole],
+    ) -> Optional[tuple["Doctor", "ActiveCase"]]:
+        """Scan every doctor's chairs and return the GLOBALLY LEAST-SEVERE
+        victim that is strictly less severe than the incoming patient.
+        Never displaces a higher-acuity (or equal-severity) patient just
+        because their doctor is in the preferred role.
+
+        Ranking among candidates:
+          1. Severity ascending (= largest severity tuple first; victim
+             with highest ESI number, then lowest risk_score)
+          2. Preferred-role tie-breaker (so an SHO ESI-5 is picked over
+             a Consultant ESI-5 when the incoming wants the SHO's slot)
+          3. Doctor with fewest active cases (frees the simplest chair)
+        ESI-1 victims are NEVER bumped.
         """
-        candidates: list[tuple[Doctor, ActiveCase, int]] = []
+        candidates: list[tuple[Doctor, ActiveCase]] = []
         for doctor in self._doctors:
             if doctor.has_esi1 or not doctor.active_cases:
                 continue
             for case in doctor.active_cases:
                 if case.esi_level == 1:
                     continue
-                if case.severity > incoming_sev:
-                    role_rank = (
-                        preferred_roles.index(doctor.role)
-                        if doctor.role in preferred_roles
-                        else len(preferred_roles)
-                    )
-                    candidates.append((doctor, case, role_rank))
+                if case.severity > incoming_sev:  # strictly less severe than incoming
+                    candidates.append((doctor, case))
         if not candidates:
             return None
-        # Sort: preferred-role first, then least-severe victim (largest tuple).
-        candidates.sort(key=lambda t: (t[2], -t[1].severity[0], t[1].severity[1]))
-        doctor, victim, _ = candidates[0]
-        return doctor, victim
+        role_rank = {r: i for i, r in enumerate(preferred_roles)}
+
+        def _key(pair):
+            d, c = pair
+            return (
+                -c.severity[0],          # higher ESI number = less severe → bump first
+                c.severity[1],           # less risk = less severe → bump first
+                role_rank.get(d.role, len(preferred_roles)),
+                len(d.active_cases),
+            )
+
+        candidates.sort(key=_key)
+        return candidates[0]
 
     def _pick_bump_target(self, preferred_roles: list[DoctorRole]) -> Optional[tuple["Doctor", "ActiveCase"]]:
         """Find a non-ESI-1 patient to bump so an incoming ESI-1 can take
-        an exclusive slot. Prefers:
-          - Doctors WITHOUT an active ESI-1 case (never bump an ESI-1 patient)
-          - Doctors in the preferred role order for ESI-1
-          - The lowest-acuity victim (highest ESI number) on that doctor
-        Returns (doctor, victim_case) or None if every doctor holds ESI-1.
+        an exclusive slot. Scans EVERY doctor's chairs and picks the
+        GLOBALLY LEAST-SEVERE victim — never bumps a higher-acuity patient
+        just because their doctor happens to be the preferred role.
+
+        Priority:
+          1. Least severe (highest ESI number, then lowest risk_score)
+          2. Tie-breaker: doctor in the preferred role for ESI-1
+        ESI-1 victims are never bumped.
         """
-        for role in preferred_roles:
-            for doctor in self._doctors:
-                if doctor.role != role or doctor.has_esi1 or not doctor.active_cases:
-                    continue
-                victim = max(doctor.active_cases, key=lambda c: c.esi_level)
-                return doctor, victim
-        # Fallback: any doctor without ESI-1
-        for doctor in self._doctors:
-            if doctor.has_esi1 or not doctor.active_cases:
-                continue
-            victim = max(doctor.active_cases, key=lambda c: c.esi_level)
-            return doctor, victim
-        return None
+        return self._pick_least_severe_victim(
+            incoming_sev=_severity(1, 100.0),  # ESI-1 max severity → bumps anything below
+            preferred_roles=preferred_roles,
+        )
 
     def _add_case(
         self,
