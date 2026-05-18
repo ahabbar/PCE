@@ -128,6 +128,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from src.api.ed_view import router as ed_view_router
+app.include_router(ed_view_router)
+
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 

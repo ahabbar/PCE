@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCE — ED Workflow (Live)</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Syne+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#03080f;--ink2:#06101c;--ink3:#0b1927;
+  --teal:#00e5c8;--red:#ff3a3a;--orange:#ff8c00;--yellow:#f5c518;
+  --blue:#4da6ff;--green:#00e07a;--purple:#c084fc;--amber:#fb923c;
+  --text:#c4dce8;--muted:#3a5570;--border:#0f2235;
+  --sans:'Syne',sans-serif;--mono:'Syne Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--ink);color:var(--text);font-family:var(--sans);overflow:hidden}
+body::before{content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(0,229,200,.018)1px,transparent 1px),linear-gradient(90deg,rgba(0,229,200,.018)1px,transparent 1px);
+  background-size:48px 48px;pointer-events:none;z-index:0}
+#app{display:grid;grid-template-rows:46px 1fr;height:100vh;position:relative;z-index:1}
+#hdr{display:flex;align-items:center;gap:14px;padding:0 18px;background:var(--ink2);border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-sq{width:26px;height:26px;background:linear-gradient(135deg,var(--teal),var(--blue));border-radius:5px;display:grid;place-items:center;font-size:8px;font-weight:800;color:#000}
+.logo-t{font-size:13px;font-weight:800;color:#fff;line-height:1}
+.logo-s{font-size:9px;color:var(--muted);font-family:var(--mono);line-height:1.2}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.live-pill{display:flex;align-items:center;gap:6px;background:var(--ink3);border:1px solid var(--border);border-radius:3px;padding:4px 10px;font-size:10px;font-family:var(--mono);color:var(--muted)}
+.ldot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s infinite}
+.ldot.off{background:var(--red);box-shadow:0 0 6px var(--red)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.btn{background:var(--ink3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:var(--sans);font-size:11px;font-weight:600;padding:4px 12px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--teal);color:var(--teal)}
+.btn.on{background:rgba(0,229,200,.08);border-color:var(--teal);color:var(--teal)}
+#vis{position:relative;overflow:hidden}
+canvas{position:absolute;inset:0}
+#cBg{z-index:1}#cPt{z-index:2}#cDot{z-index:3}
+.pnl{position:absolute;z-index:10;background:rgba(6,16,28,.92);border:1px solid var(--border);border-radius:6px;padding:11px 13px;backdrop-filter:blur(4px)}
+#leg{right:12px;top:10px;min-width:160px}
+#met{left:12px;top:10px;width:208px}
+.pt{font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)}
+.lr{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-size:10px}
+.ll{width:22px;height:2px;border-radius:1px;flex-shrink:0}
+.ld{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sp{height:1px;background:var(--border);margin:7px 0}
+.mr{display:flex;justify-content:space-between;margin-bottom:4px;font-size:10px}
+.mv{font-family:var(--mono);font-size:11px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="hdr">
+  <div class="logo">
+    <div class="logo-sq">PCE</div>
+    <div>
+      <div class="logo-t">Parallel Care Engine</div>
+      <div class="logo-s">ED Live Flow · synced with FastAPI · SSE stream</div>
+    </div>
+  </div>
+  <div class="hdr-r">
+    <div class="live-pill"><div class="ldot" id="lDot"></div><span id="lTxt">CONNECTING</span></div>
+    <button class="btn on" id="bPlay" onclick="tog()">&#9646;&#9646; Pause</button>
+    <button class="btn" id="s1" onclick="spd(1)">1&times;</button>
+    <button class="btn on" id="s2" onclick="spd(2)">2&times;</button>
+    <button class="btn" id="s4" onclick="spd(4)">4&times;</button>
+  </div>
+</div>
+<div id="vis">
+  <canvas id="cBg"></canvas>
+  <canvas id="cPt"></canvas>
+  <canvas id="cDot"></canvas>
+  <div class="pnl" id="leg">
+    <div class="pt">Pathways</div>
+    <div class="lr"><div class="ll" style="background:#ff3a3a"></div>ESI-1 Resus (excluded)</div>
+    <div class="lr"><div class="ll" style="background:#ff8c00"></div>ESI-2 Emergent</div>
+    <div class="lr"><div class="ll" style="background:#f5c518"></div>ESI-3/4 Standard</div>
+    <div class="lr"><div class="ll" style="background:#4da6ff"></div>ESI-5 Lite</div>
+    <div class="sp"></div>
+    <div class="pt">Data Flows</div>
+    <div class="lr"><div class="ld" style="background:#00e5c8"></div>Agent pulse</div>
+    <div class="lr"><div class="ld" style="background:#f5c518"></div>Lab result</div>
+    <div class="lr"><div class="ld" style="background:#c084fc"></div>Doctor assign</div>
+    <div class="lr"><div class="ld" style="background:#00e07a"></div>Patient (PCE)</div>
+  </div>
+  <div class="pnl" id="met">
+    <div class="pt">Live Metrics</div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">Patients in ED</span><span class="mv" id="mIn" style="color:#00e5c8">0</span></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">Waiting</span><span class="mv" id="mWa" style="color:#f5c518">0</span></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">In bed (workup)</span><span class="mv" id="mIb" style="color:#ff8c00">0</span></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">With doctor</span><span class="mv" id="mDo" style="color:#4da6ff">0</span></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">Processed today</span><span class="mv" id="mPr" style="color:#00e07a">0</span></div>
+    <div class="sp"></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">Avg wait — PCE</span><span class="mv" id="mW1" style="color:#00e07a">—</span></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">Avg wait — Traditional</span><span class="mv" id="mW2" style="color:#ff3a3a">85min</span></div>
+    <div class="mr"><span style="color:#3a5570;font-size:10px">Lab utilisation</span><span class="mv" id="mLu" style="color:#f5c518">0%</span></div>
+    <div class="sp"></div>
+    <div class="pt">Agent activity (5s window)</div>
+    <div id="aSt"></div>
+  </div>
+</div>
+</div>
+<script>
+var cBg=document.getElementById('cBg'),cPt=document.getElementById('cPt'),cDot=document.getElementById('cDot'),vis=document.getElementById('vis');
+var Bg=cBg.getContext('2d'),Pt=cPt.getContext('2d'),Dot=cDot.getContext('2d');
+var W,H,DPR,play=true,speed=2,simT=0,parts=[],last=null;
+var C={teal:'#00e5c8',red:'#ff3a3a',orange:'#ff8c00',yellow:'#f5c518',blue:'#4da6ff',green:'#00e07a',purple:'#c084fc',amber:'#fb923c',muted:'#3a5570',text:'#c4dce8',border:'#0f2235'};
+
+// State synced from /ed-stream
+var prevPatients={}; // id -> {zone, status, is_red, esi, result_count}
+var curPatients={};
+var agentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
+var prevAgentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
+var snapTs=0;
+
+function resize(){
+  DPR=window.devicePixelRatio||1;
+  var r=vis.getBoundingClientRect();W=r.width;H=r.height;
+  [cBg,cPt,cDot].forEach(function(c){c.width=W*DPR;c.height=H*DPR;c.style.width=W+'px';c.style.height=H+'px';c.getContext('2d').setTransform(DPR,0,0,DPR,0,0);});
+  drawBg();drawDots();
+}
+window.addEventListener('resize',resize);setTimeout(resize,60);
+
+function x(v){return v*W;}function y(v){return v*H;}
+function h2r(h){return{r:parseInt(h.slice(1,3),16),g:parseInt(h.slice(3,5),16),b:parseInt(h.slice(5,7),16)};}
+function rr(c,px,py,pw,ph,r){r=r||7;c.beginPath();c.moveTo(px+r,py);c.lineTo(px+pw-r,py);c.arcTo(px+pw,py,px+pw,py+r,r);c.lineTo(px+pw,py+ph-r);c.arcTo(px+pw,py+ph,px+pw-r,py+ph,r);c.lineTo(px+r,py+ph);c.arcTo(px,py+ph,px,py+ph-r,r);c.lineTo(px,py+r);c.arcTo(px,py,px+r,py,r);c.closePath();}
+
+var ZONES={
+  arrival:   {rx:.01,ry:.22,rw:.08,rh:.20,lbl:'Patient\nArrival',col:C.muted},
+  triage:    {rx:.12,ry:.18,rw:.10,rh:.28,lbl:'Triage\nStation\n(Nurse)',col:C.teal},
+  waiting:   {rx:.25,ry:.20,rw:.10,rh:.24,lbl:'Waiting\nRoom',col:C.muted},
+  resus:     {rx:.38,ry:.04,rw:.12,rh:.12,lbl:'Resus Bay\nESI-1 Only',col:C.red},
+  majors:    {rx:.38,ry:.19,rw:.12,rh:.18,lbl:'Majors\nESI 2-3',col:C.orange},
+  minors:    {rx:.38,ry:.40,rw:.12,rh:.14,lbl:'Minors\nESI 4-5',col:C.yellow},
+  doctor:    {rx:.54,ry:.14,rw:.11,rh:.20,lbl:'Doctor\nEncounter',col:C.blue},
+  lab:       {rx:.54,ry:.48,rw:.11,rh:.14,lbl:'Laboratory\n(LIS)',col:C.yellow},
+  imaging:   {rx:.68,ry:.48,rw:.10,rh:.14,lbl:'Radiology\nImaging',col:C.amber},
+  pharmacy:  {rx:.81,ry:.48,rw:.08,rh:.14,lbl:'Pharmacy',col:C.purple},
+  discharge: {rx:.69,ry:.14,rw:.09,rh:.10,lbl:'Discharge\nHome',col:C.green},
+  admit:     {rx:.69,ry:.26,rw:.09,rh:.10,lbl:'Ward\nAdmit',col:C.blue},
+  transfer:  {rx:.69,ry:.38,rw:.09,rh:.10,lbl:'Transfer\nOut',col:C.amber},
+  his:       {rx:.81,ry:.22,rw:.08,rh:.10,lbl:'HIS\nEHR',col:C.blue},
+  a1:{rx:.04,ry:.75,rw:.10,rh:.13,lbl:'A1\nRisk Score\nGemini Flash',col:C.orange},
+  a2:{rx:.16,ry:.75,rw:.10,rh:.13,lbl:'A2\nRed Flag\nT=0.0',col:C.red},
+  a3:{rx:.28,ry:.75,rw:.10,rh:.13,lbl:'A3\nWorkup\nWhitelist',col:C.teal},
+  a4:{rx:.40,ry:.75,rw:.10,rh:.13,lbl:'A4\nBatch\nPure Logic',col:C.yellow},
+  a5:{rx:.52,ry:.75,rw:.10,rh:.13,lbl:'A5\nLoad Bal\nPure Logic',col:C.purple},
+  a6:{rx:.64,ry:.75,rw:.10,rh:.13,lbl:'A6\nDisposition\nGemini Pro',col:C.blue},
+  a7:{rx:.76,ry:.75,rw:.10,rh:.13,lbl:'A7\nExit\nGemini Flash',col:C.green},
+};
+
+function zc(k){var z=ZONES[k];return{x:x(z.rx+z.rw/2),y:y(z.ry+z.rh/2)};}
+
+function drawZone(ctx,k,ga){
+  ga=ga||.18;
+  var z=ZONES[k],px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
+  var c=h2r(z.col);
+  var g=ctx.createRadialGradient(px+pw/2,py+ph/2,0,px+pw/2,py+ph/2,Math.max(pw,ph)*.7);
+  g.addColorStop(0,'rgba('+c.r+','+c.g+','+c.b+','+ga+')');g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;ctx.beginPath();rr(ctx,px-6,py-6,pw+12,ph+12,11);ctx.fill();
+  ctx.fillStyle='rgba(6,16,28,.93)';ctx.beginPath();rr(ctx,px,py,pw,ph);ctx.fill();
+  ctx.strokeStyle=z.col;ctx.lineWidth=1.2;ctx.globalAlpha=.55;ctx.beginPath();rr(ctx,px,py,pw,ph);ctx.stroke();ctx.globalAlpha=1;
+  ctx.fillStyle=z.col;ctx.textAlign='center';ctx.textBaseline='middle';
+  var lines=(z.lbl||k).split('\n');
+  var fs=Math.max(8,Math.min(10,pw/8));
+  lines.forEach(function(l,i){ctx.font=(i===0?700:600)+' '+(i===0?fs:fs-1)+'px Syne';ctx.fillText(l,px+pw/2,py+ph/2+(i-(lines.length-1)/2)*13);});
+}
+
+function conn(ctx,ax,ay,bx,by,col,dash,alpha){
+  dash=dash||false;alpha=alpha||.35;
+  ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle=col;ctx.lineWidth=1.4;
+  if(dash)ctx.setLineDash([4,7]);
+  ctx.beginPath();var mx=(ax+bx)/2;ctx.moveTo(ax,ay);ctx.bezierCurveTo(mx,ay,mx,by,bx,by);ctx.stroke();
+  if(!dash){var ang=Math.atan2(by-ay,bx-ax);ctx.save();ctx.translate(bx,by);ctx.rotate(ang);ctx.beginPath();ctx.moveTo(-7,-3.5);ctx.lineTo(0,0);ctx.lineTo(-7,3.5);ctx.strokeStyle=col;ctx.lineWidth=1.4;ctx.stroke();ctx.restore();}
+  ctx.setLineDash([]);ctx.restore();
+}
+
+function drawBg(){
+  if(!W)return;
+  Bg.clearRect(0,0,W,H);
+  Bg.save();Bg.strokeStyle=C.border;Bg.lineWidth=1;Bg.setLineDash([5,8]);
+  Bg.beginPath();Bg.moveTo(x(.01),y(.71));Bg.lineTo(x(.99),y(.71));Bg.stroke();Bg.setLineDash([]);Bg.restore();
+  Bg.font='700 10px Syne';Bg.textAlign='left';Bg.globalAlpha=.6;
+  Bg.fillStyle=C.teal;Bg.fillText('\u25b8 PHYSICAL ED ZONES + RESOURCES',x(.01),y(.15));
+  Bg.fillStyle=C.orange;Bg.fillText('\u25b8 PCE AGENTS \u2014 7 PARALLEL AGENTS (asyncio.gather)',x(.01),y(.71));
+  Bg.strokeStyle=C.red;Bg.lineWidth=1.5;Bg.setLineDash([4,5]);Bg.globalAlpha=.4;
+  Bg.strokeRect(x(.37),y(.02),x(.14),y(.15));Bg.setLineDash([]);Bg.globalAlpha=.6;
+  Bg.fillStyle=C.red;Bg.font='700 9px Syne Mono';Bg.textAlign='center';Bg.fillText('PCE EXCLUDED \u2014 Direct to Resus',x(.44),y(.015));
+  Bg.globalAlpha=1;
+  ['arrival','triage','waiting','resus','majors','minors','doctor','lab','imaging','pharmacy','discharge','admit','transfer','his'].forEach(function(k){drawZone(Bg,k);});
+  ['a1','a2','a3','a4','a5','a6','a7'].forEach(function(k){drawZone(Bg,k,.28);});
+  var pa=[[zc('arrival'),zc('triage'),C.teal],
+    [zc('triage'),{x:x(.22),y:y(.31)},zc('waiting'),C.teal],
+    [zc('waiting'),zc('majors'),C.orange],[zc('waiting'),zc('minors'),C.yellow],
+    [zc('majors'),{x:x(.50),y:y(.25)},zc('doctor'),C.blue],
+    [zc('doctor'),{x:x(.66),y:y(.19)},zc('discharge'),C.green],
+    [zc('doctor'),{x:x(.66),y:y(.31)},zc('admit'),C.blue],
+  ];
+  pa.forEach(function(p){
+    if(p.length===3)conn(Bg,p[0].x,p[0].y,p[1].x,p[1].y,p[2]);
+    else if(p.length===4)conn(Bg,p[0].x,p[0].y,p[2].x,p[2].y,p[3]);
+  });
+  conn(Bg,zc('triage').x,zc('triage').y,x(.44),y(.10),C.red,false,.4);
+  conn(Bg,zc('majors').x,zc('majors').y,zc('lab').x,zc('lab').y,C.yellow,true);
+  conn(Bg,zc('lab').x,zc('lab').y,zc('doctor').x,zc('doctor').y,C.yellow,true);
+  conn(Bg,zc('majors').x,zc('majors').y,zc('imaging').x,zc('imaging').y,C.amber,true);
+  conn(Bg,zc('imaging').x,zc('imaging').y,zc('doctor').x,zc('doctor').y,C.amber,true);
+  conn(Bg,zc('doctor').x,zc('doctor').y,zc('pharmacy').x,zc('pharmacy').y,C.purple,true);
+  conn(Bg,zc('his').x,zc('his').y,zc('triage').x,zc('triage').y,C.blue,true);
+  var ag=['a1','a2','a3','a4','a5','a6','a7'];
+  for(var i=0;i<6;i++)conn(Bg,zc(ag[i]).x,zc(ag[i]).y,zc(ag[i+1]).x,zc(ag[i+1]).y,C.teal,true,.5);
+  [['triage','a1',C.orange],['triage','a2',C.red],['waiting','a3',C.teal],['lab','a4',C.yellow],['doctor','a5',C.purple],['doctor','a6',C.blue],['discharge','a7',C.green]].forEach(function(v){
+    Bg.save();Bg.globalAlpha=.18;Bg.strokeStyle=v[2];Bg.lineWidth=1;Bg.setLineDash([3,6]);
+    Bg.beginPath();Bg.moveTo(zc(v[0]).x,zc(v[0]).y);Bg.lineTo(zc(v[1]).x,zc(v[1]).y);Bg.stroke();Bg.setLineDash([]);Bg.restore();
+  });
+}
+
+// ─── Particle system (only spawn on real events) ───────────────────────────
+function Prt(pts,col,spd,sz,lbl){
+  this.pts=pts;this.col=col;this.spd=spd;this.sz=sz||3;this.lbl=lbl||'';
+  this.t=0;this.alive=true;this.a=1;
+}
+Prt.prototype.pos=function(){
+  var n=this.pts.length-1,seg=Math.min(Math.floor(this.t*n),n-1);
+  var f=this.t*n-seg,A=this.pts[seg],B=this.pts[seg+1];
+  return{x:A.x+(B.x-A.x)*f,y:A.y+(B.y-A.y)*f};
+};
+Prt.prototype.update=function(dt){
+  this.t+=this.spd*dt;
+  if(this.t>=1){this.alive=false;return;}
+  this.a=this.t<.06?this.t/.06:this.t>.85?(1-this.t)/.15:1;
+};
+Prt.prototype.draw=function(ctx){
+  var p=this.pos();ctx.save();ctx.globalAlpha=this.a;
+  var c=h2r(this.col);
+  var g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,this.sz*3.5);
+  g.addColorStop(0,'rgba('+c.r+','+c.g+','+c.b+',.7)');g.addColorStop(1,'rgba('+c.r+','+c.g+','+c.b+',0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,this.sz*3.5,0,6.28);ctx.fill();
+  ctx.fillStyle=this.col;ctx.beginPath();ctx.arc(p.x,p.y,this.sz,0,6.28);ctx.fill();
+  if(this.lbl&&this.a>.5){ctx.fillStyle=this.col;ctx.font='700 7px Syne Mono';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(this.lbl,p.x,p.y-this.sz-1);}
+  ctx.restore();
+};
+
+function spawn(pathPts,col,sp,sz,lbl){parts.push(new Prt(pathPts,col,sp||.15,sz||3,lbl||''));}
+
+// Path templates for transitions
+function pathArrivalToWaiting(){return [zc('arrival'),zc('triage'),{x:x(.22),y:y(.31)},zc('waiting')];}
+function pathWaitingToBed(esi){
+  var dest=esi<=3?zc('majors'):zc('minors');
+  return [zc('waiting'),dest];
+}
+function pathBedToDoctor(esi){
+  var src=esi<=3?zc('majors'):zc('minors');
+  return [src,{x:x(.50),y:y(.25)},zc('doctor')];
+}
+function pathLabCycle(esi){
+  var src=esi<=3?zc('majors'):zc('minors');
+  return [src,{x:x(.50),y:y(.56)},zc('lab'),{x:x(.58),y:y(.35)},zc('doctor')];
+}
+function pathDoctorToDischarge(dest){
+  if(dest==='admit')return [zc('doctor'),{x:x(.66),y:y(.31)},zc('admit')];
+  return [zc('doctor'),{x:x(.66),y:y(.19)},zc('discharge')];
+}
+function pathAgentTrigger(agentKey,sourceZone){
+  return [zc(sourceZone),{x:x((ZONES[agentKey].rx+ZONES[sourceZone].rx)/2),y:y(.55)},zc(agentKey)];
+}
+
+// ─── Diff + spawn particles on transitions ──────────────────────────────
+function applySnapshot(snap){
+  curPatients={};
+  (snap.patients||[]).forEach(function(p){curPatients[p.id]=p;});
+
+  // Detect new patients (no prev) → arrival particle
+  Object.keys(curPatients).forEach(function(id){
+    var cur=curPatients[id];
+    var prev=prevPatients[id];
+    if(!prev){
+      var col=cur.is_red?C.red:(cur.esi<=2?C.orange:cur.esi<=3?C.yellow:cur.esi<=4?C.green:C.blue);
+      spawn(pathArrivalToWaiting(),col,.10,4,'P');
+    } else {
+      // Status transitions
+      if(prev.status==='waiting' && (cur.status==='workup'||cur.status==='results'||cur.status==='assigned')){
+        spawn(pathWaitingToBed(cur.esi),C.orange,.13,3.5);
+      }
+      if(prev.status!=='assigned' && cur.status==='assigned'){
+        spawn(pathBedToDoctor(cur.esi),C.purple,.12,3.5,'asn');
+      }
+      if((prev.status==='workup'||prev.status==='results') && cur.status==='discharged'){
+        spawn(pathDoctorToDischarge('discharge'),C.green,.10,4,'exit');
+      }
+      if(prev.status==='assigned' && cur.status==='discharged'){
+        spawn(pathDoctorToDischarge('discharge'),C.green,.10,4,'exit');
+      }
+      // Lab result(s) came in → spawn lab→doctor pulse per increment
+      var delta=(cur.result_count||0)-(prev.result_count||0);
+      for(var k=0;k<delta&&k<5;k++){
+        spawn(pathLabCycle(cur.esi),C.yellow,.14,3,'res');
+      }
+    }
+  });
+
+  // Detect departures (prev had but cur doesn't) — already discharged in DB, spawn exit
+  Object.keys(prevPatients).forEach(function(id){
+    if(!curPatients[id]){
+      spawn(pathDoctorToDischarge('discharge'),C.green,.12,4,'out');
+    }
+  });
+
+  // Agent activity — diff counts and spawn pulses
+  var newCounts=snap.agents||{};
+  ['A1','A2','A3','A4','A5','A6','A7'].forEach(function(k){
+    var cur=newCounts[k]||0,prev=agentCounts[k]||0;
+    // If this is the FIRST snapshot, do not back-spawn; just record baseline.
+    if(snapTs!==0){
+      var delta=cur-prev;
+      // Window-based counts can fluctuate, so spawn only on increase
+      if(delta>0){
+        var sources={A1:'triage',A2:'triage',A3:'waiting',A4:'lab',A5:'doctor',A6:'doctor',A7:'discharge'};
+        var cols={A1:C.orange,A2:C.red,A3:C.teal,A4:C.yellow,A5:C.purple,A6:C.blue,A7:C.green};
+        var ak='a'+k.charAt(1);
+        for(var d=0;d<delta&&d<3;d++){
+          spawn(pathAgentTrigger(ak,sources[k]),cols[k],.20,3,k);
+        }
+      }
+    }
+    agentCounts[k]=cur;
+  });
+
+  // Update panel metrics
+  var m=snap.metrics||{};
+  document.getElementById('mIn').textContent=m.in_ed||0;
+  document.getElementById('mWa').textContent=m.waiting||0;
+  document.getElementById('mIb').textContent=m.in_bed||0;
+  document.getElementById('mDo').textContent=m.with_doctor||0;
+  document.getElementById('mPr').textContent=m.processed_total||0;
+  document.getElementById('mW1').textContent=((m.avg_wait_pce_min||0).toFixed(0))+'min';
+  document.getElementById('mLu').textContent=(m.lab_util_pct||0)+'%';
+
+  prevPatients=curPatients;
+  snapTs=snap.ts||Date.now()/1000;
+  drawAgentPanel();
+  drawDots();
+}
+
+// ─── Agent panel ──────────────────────────────────────────────────────
+var ACON=[{n:'A1',c:C.orange},{n:'A2',c:C.red},{n:'A3',c:C.teal},{n:'A4',c:C.yellow},{n:'A5',c:C.purple},{n:'A6',c:C.blue},{n:'A7',c:C.green}];
+var ANAME={A1:'Risk Score',A2:'Red Flag',A3:'Workup',A4:'Batch',A5:'Load Bal.',A6:'Disposition',A7:'Exit'};
+function drawAgentPanel(){
+  var el=document.getElementById('aSt');
+  if(!el._i){
+    el.innerHTML=ACON.map(function(a){
+      return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;font-size:9px">'
+        +'<div id="d'+a.n+'" style="width:5px;height:5px;border-radius:50%;background:'+a.c+';flex-shrink:0;box-shadow:0 0 4px '+a.c+';transition:opacity .25s"></div>'
+        +'<span style="color:'+a.c+';font-family:Syne Mono;font-weight:700;font-size:8px">'+a.n+'</span>'
+        +'<span style="color:#3a5570;flex:1">'+ANAME[a.n]+'</span>'
+        +'<span id="c'+a.n+'" style="color:'+a.c+';font-family:Syne Mono;font-size:8px">0</span></div>';
+    }).join('');el._i=true;
+  }
+  ACON.forEach(function(a){
+    var c=document.getElementById('c'+a.n),d=document.getElementById('d'+a.n);
+    var n=agentCounts[a.n]||0;
+    if(c)c.textContent=n;
+    if(d)d.style.opacity=n>0?1:.25;
+  });
+}
+
+// ─── Patient dots inside zones ────────────────────────────────────────
+function zoneFor(p){
+  if(p.status==='waiting')return 'waiting';
+  if(p.status==='workup'||p.status==='results')return p.esi<=3?'majors':'minors';
+  if(p.status==='assigned')return 'doctor';
+  if(p.status==='discharged')return 'discharge';
+  return 'waiting';
+}
+function drawDots(){
+  if(!W)return;
+  Dot.clearRect(0,0,W,H);
+  var byZone={};
+  Object.keys(curPatients).forEach(function(id){
+    var p=curPatients[id],z=zoneFor(p);
+    (byZone[z]=byZone[z]||[]).push(p);
+  });
+  Object.keys(byZone).forEach(function(zk){
+    var z=ZONES[zk];if(!z)return;
+    var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
+    var list=byZone[zk];
+    var dotR=4,gap=3,perRow=Math.max(2,Math.floor((pw-12)/(dotR*2+gap)));
+    var startX=px+8,startY=py+ph-dotR-6;
+    list.slice(0,18).forEach(function(p,i){
+      var col=i<list.length?colorForPatient(p):C.muted;
+      var row=Math.floor(i/perRow),colN=i%perRow;
+      var dx=startX+colN*(dotR*2+gap),dy=startY-row*(dotR*2+gap);
+      var rgb=h2r(col);
+      var g=Dot.createRadialGradient(dx,dy,0,dx,dy,dotR*2.5);
+      g.addColorStop(0,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',.7)');
+      g.addColorStop(1,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',0)');
+      Dot.fillStyle=g;Dot.beginPath();Dot.arc(dx,dy,dotR*2.5,0,6.28);Dot.fill();
+      Dot.fillStyle=col;Dot.beginPath();Dot.arc(dx,dy,dotR,0,6.28);Dot.fill();
+      if(p.is_red){
+        Dot.strokeStyle='#fff';Dot.lineWidth=1;Dot.globalAlpha=.5+.5*Math.sin(simT*4);
+        Dot.beginPath();Dot.arc(dx,dy,dotR+2,0,6.28);Dot.stroke();Dot.globalAlpha=1;
+      }
+    });
+    if(list.length>18){
+      Dot.fillStyle=C.text;Dot.font='700 9px Syne Mono';Dot.textAlign='left';
+      Dot.fillText('+'+(list.length-18),startX,startY+12);
+    }
+    // Zone occupancy count badge
+    Dot.fillStyle=z.col;Dot.font='800 11px Syne Mono';Dot.textAlign='right';Dot.textBaseline='top';
+    Dot.fillText(list.length,px+pw-6,py+4);
+  });
+}
+function colorForPatient(p){
+  if(p.is_red)return C.red;
+  if(p.esi<=2)return C.orange;
+  if(p.esi===3)return C.yellow;
+  if(p.esi===4)return C.green;
+  return C.blue;
+}
+
+// ─── Animation loop ───────────────────────────────────────────────────
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(!play){last=null;return;}
+  if(!last){last=ts;return;}
+  var dt=Math.min((ts-last)/1000,.05);last=ts;simT+=dt*speed;
+  for(var i=parts.length-1;i>=0;i--){parts[i].update(dt*speed);if(!parts[i].alive)parts.splice(i,1);}
+  Pt.clearRect(0,0,W,H);
+  parts.forEach(function(p){p.draw(Pt);});
+  // Red-flag pulse repaint on dots
+  if(simT%.1<dt*speed)drawDots();
+}
+requestAnimationFrame(loop);
+
+// ─── Controls ─────────────────────────────────────────────────────────
+function tog(){play=!play;var b=document.getElementById('bPlay');b.textContent=play?'\u23F8 Pause':'\u25B6 Resume';b.className=play?'btn on':'btn';if(play)last=null;}
+function spd(s){speed=s;['s1','s2','s4'].forEach(function(id){document.getElementById(id).className='btn';});document.getElementById('s'+s).className='btn on';}
+
+// ─── SSE connection ───────────────────────────────────────────────────
+var es=null,reconnectMs=2000;
+function connect(){
+  try{
+    var streamUrl=(window.PCE_STREAM_URL||'/ed-stream');
+    es=new EventSource(streamUrl);
+    es.onopen=function(){
+      document.getElementById('lDot').className='ldot';
+      document.getElementById('lTxt').textContent='LIVE';
+      reconnectMs=2000;
+    };
+    es.onmessage=function(ev){
+      try{var snap=JSON.parse(ev.data);if(snap&&snap.patients!==undefined)applySnapshot(snap);}
+      catch(_){}
+    };
+    es.onerror=function(){
+      document.getElementById('lDot').className='ldot off';
+      document.getElementById('lTxt').textContent='RECONNECTING';
+      if(es){es.close();es=null;}
+      setTimeout(connect,reconnectMs);
+      reconnectMs=Math.min(reconnectMs*1.5,15000);
+    };
+  }catch(e){
+    document.getElementById('lDot').className='ldot off';
+    document.getElementById('lTxt').textContent='OFFLINE';
+    setTimeout(connect,5000);
+  }
+}
+connect();
+drawAgentPanel();
+</script>
+</body>
+</html>
