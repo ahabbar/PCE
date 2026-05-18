@@ -143,6 +143,13 @@ async def _build_snapshot() -> dict:
     }
 
 
+@router.get("/ed-snapshot")
+async def ed_snapshot():
+    """One-shot JSON snapshot — used by the dashboard for server-side seeding
+    when the browser cannot reach /ed-stream directly (e.g. private network)."""
+    return await _build_snapshot()
+
+
 @router.get("/ed-view", response_class=HTMLResponse)
 async def ed_view():
     try:

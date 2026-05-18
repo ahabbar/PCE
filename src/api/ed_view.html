@@ -602,6 +602,10 @@ function connect(){
     setTimeout(connect,5000);
   }
 }
+if(window.PCE_INITIAL_SNAPSHOT){
+  try{applySnapshot(window.PCE_INITIAL_SNAPSHOT);DIAG.snapCount++;DIAG.sse='seeded server-side';}
+  catch(e){DIAG.lastErr='initial snap: '+e.message;}
+}
 connect();
 drawAgentPanel();
 </script>

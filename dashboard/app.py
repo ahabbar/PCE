@@ -1294,28 +1294,58 @@ with tab5, st.container(height=600, border=False):
 
 
 with tab6:
+    import json as _json
     from pathlib import Path as _Path
     _ED_HTML_PATH = _Path(__file__).parent.parent / "src" / "api" / "ed_view.html"
     _ed_url = f"{PUBLIC_API_URL}/ed-view"
     _stream_url = f"{PUBLIC_API_URL}/ed-stream"
 
-    st.markdown(
-        "Live ED workflow — patients and AI agent activity stream from FastAPI via SSE. "
-        "Particles fire on real status transitions; dots show actual occupancy in each zone."
-    )
+    _hdr_col1, _hdr_col2 = st.columns([5, 1])
+    with _hdr_col1:
+        st.markdown(
+            "Live ED workflow — zones drawn from FastAPI snapshot. "
+            "Doctors, patients and agent activity reflect the current queue state."
+        )
+    with _hdr_col2:
+        if st.button("Refresh", key="ed_flow_refresh"):
+            _api_get_json.clear()
+            st.rerun()
+
+    # Fetch a snapshot server-side (works even when the browser can't reach
+    # the API directly, e.g. when API_URL is a private Railway URL).
+    _initial_snap = None
+    try:
+        _status, _initial_snap = _api_get_json("/ed-snapshot", timeout=4)
+        if _status != 200:
+            _initial_snap = None
+    except Exception:
+        _initial_snap = None
 
     try:
         _ed_html = _ED_HTML_PATH.read_text(encoding="utf-8")
-        # Inject the absolute SSE URL so the embedded page knows where to
-        # connect (it would otherwise default to a relative /ed-stream that
-        # resolves against Streamlit's origin, where no such endpoint exists).
-        _inject = f"<script>window.PCE_STREAM_URL='{_stream_url}';</script>"
-        _ed_html = _ed_html.replace("</head>", _inject + "</head>", 1)
+        _inject_parts = [
+            f"<script>window.PCE_STREAM_URL='{_stream_url}';</script>",
+        ]
+        if _initial_snap:
+            _inject_parts.append(
+                f"<script>window.PCE_INITIAL_SNAPSHOT={_json.dumps(_initial_snap)};</script>"
+            )
+        _ed_html = _ed_html.replace("</head>", "".join(_inject_parts) + "</head>", 1)
         st.components.v1.html(_ed_html, height=720, scrolling=False)
     except FileNotFoundError:
         st.error(f"ED view HTML not found at {_ED_HTML_PATH}")
 
-    st.caption(
-        f"Live API: [{_ed_url}]({_ed_url}) · stream: `{_stream_url}`. "
-        "On Railway, set `PCE_PUBLIC_API_URL` on the dashboard service to the API's public HTTPS URL."
-    )
+    if _initial_snap:
+        _n_pts = len(_initial_snap.get("patients", []))
+        _n_doc = len(_initial_snap.get("doctors", []))
+        st.caption(
+            f"Snapshot loaded server-side: {_n_pts} patients, {_n_doc} doctors. "
+            f"Live updates via SSE require `PCE_PUBLIC_API_URL` to be set to the API's "
+            f"public HTTPS URL (currently: `{_stream_url}`). "
+            f"Click **Refresh** above to repaint."
+        )
+    else:
+        st.caption(
+            f"Could not fetch snapshot from `{PUBLIC_API_URL}/ed-snapshot`. "
+            f"Check that the API service is running and reachable from the dashboard."
+        )
