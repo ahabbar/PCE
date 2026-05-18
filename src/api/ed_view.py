@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.agents.bed_manager import BED_CAPACITY, auto_fill_beds
 from src.agents.load_balancer import get_load_balancer
-from src.database.db import get_recent_patients
+from src.database.db import count_dispositions, get_recent_patients
 from src.orchestrator.queue import get_queue
 
 logger = logging.getLogger("pce.ed_view")
@@ -112,6 +112,7 @@ async def _build_snapshot() -> dict:
 
     agents = await _agent_counts_in_window(_AGENT_WINDOW_SEC)
     lab_util = await _lab_utilization_pct()
+    dispo_counts = await count_dispositions()
     avg_wait = (
         round(sum(wait_minutes) / len(wait_minutes), 1) if wait_minutes else 0.0
     )
@@ -139,6 +140,7 @@ async def _build_snapshot() -> dict:
         "doctors": doctors_out,
         "agents": agents,
         "bed_capacity": BED_CAPACITY,
+        "disposition_counts": dispo_counts,
         "metrics": {
             "in_ed": len(pts),
             "waiting": waiting,
@@ -166,7 +168,14 @@ async def ed_view():
         html = _HTML_PATH.read_text(encoding="utf-8")
     except FileNotFoundError:
         return HTMLResponse("<h1>ed_view.html missing</h1>", status_code=500)
-    return HTMLResponse(html)
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.get("/ed-stream")

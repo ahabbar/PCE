@@ -459,8 +459,9 @@ async def quick_discharge(patient_id: str, body: dict):
     await get_queue().discharge(patient_id)
     freed_name = None
     try:
-        from src.database.db import update_patient_status
+        from src.database.db import update_patient_status, set_patient_disposition
         await update_patient_status(patient_id, "seen")
+        await set_patient_disposition(patient_id, disposition)
         freed = get_load_balancer().complete_case(patient_id)
         if freed:
             freed_name = freed.name
@@ -555,6 +556,8 @@ async def generate_exit_plan(patient_id: str, body: dict):
 
     try:
         await update_patient_status(patient_id, "seen")
+        from src.database.db import set_patient_disposition
+        await set_patient_disposition(patient_id, disp_type.value)
     except Exception:
         pass
     await get_queue().discharge(patient_id)

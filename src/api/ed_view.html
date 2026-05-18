@@ -122,6 +122,7 @@ var prevPatients={}; // id -> {zone, status, is_red, esi, result_count}
 var curPatients={};
 var curDoctors=[]; // [{id,name,role,active,max,load_pct,patients:[]}]
 var curBedCapacity=10;
+var curDispoCounts={discharge:0,admit:0,icu:0,transfer:0};
 var agentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
 var prevAgentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
 var snapTs=0;
@@ -163,9 +164,10 @@ var ZONES={
   lab:       {rx:.36,ry:.58,rw:.10,rh:.12,lbl:'Laboratory\n(LIS)',col:C.yellow},
   imaging:   {rx:.47,ry:.58,rw:.10,rh:.12,lbl:'Radiology\nImaging',col:C.amber},
   pharmacy:  {rx:.58,ry:.58,rw:.10,rh:.12,lbl:'Pharmacy',col:C.purple},
-  discharge: {rx:.69,ry:.16,rw:.09,rh:.12,lbl:'Discharge\nHome',col:C.green},
-  admit:     {rx:.69,ry:.30,rw:.09,rh:.12,lbl:'Ward\nAdmit',col:C.blue},
-  transfer:  {rx:.69,ry:.44,rw:.09,rh:.12,lbl:'Transfer\nOut',col:C.amber},
+  discharge: {rx:.69,ry:.16,rw:.09,rh:.10,lbl:'Discharge\nHome',col:C.green},
+  admit:     {rx:.69,ry:.27,rw:.09,rh:.10,lbl:'Ward\nAdmit',col:C.blue},
+  icu:       {rx:.69,ry:.38,rw:.09,rh:.10,lbl:'ICU\nAdmit',col:C.red},
+  transfer:  {rx:.69,ry:.49,rw:.09,rh:.10,lbl:'Transfer\nOut',col:C.amber},
   a1:{rx:.04,ry:.75,rw:.10,rh:.13,lbl:'A1\nRisk Score\nGemini Flash',col:C.orange},
   a2:{rx:.16,ry:.75,rw:.10,rh:.13,lbl:'A2\nRed Flag\nT=0.0',col:C.red},
   a3:{rx:.28,ry:.75,rw:.10,rh:.13,lbl:'A3\nWorkup\nWhitelist',col:C.teal},
@@ -225,7 +227,7 @@ function drawBg(){
   Bg.fillStyle=C.teal;Bg.fillText('\u25b8 PHYSICAL ED ZONES + RESOURCES',x(.50),y(.13));
   Bg.textAlign='left';
   Bg.fillStyle=C.orange;Bg.fillText('\u25b8 PCE AGENTS \u2014 7 PARALLEL AGENTS (asyncio.gather)',x(.01),y(.71));
-  ['arrival','triage','waiting','resus','treatment','lab','imaging','pharmacy','discharge','admit','transfer'].forEach(function(k){drawZone(Bg,k);});
+  ['arrival','triage','waiting','resus','treatment','lab','imaging','pharmacy','discharge','admit','icu','transfer'].forEach(function(k){drawZone(Bg,k);});
   ['a1','a2','a3','a4','a5','a6','a7'].forEach(function(k){drawZone(Bg,k,.28);});
   // HIS/EHR chip inside the triage zone (upper-right corner)
   drawHisChip(Bg);
@@ -236,9 +238,10 @@ function drawBg(){
   var pa=[[zc('arrival'),zc('triage'),C.teal],
     [zc('triage'),{x:x(.22),y:y(.32)},zc('waiting'),C.teal],
     [zc('waiting'),zc('treatment'),C.orange],
-    [zc('treatment'),{x:x(.68),y:y(.22)},zc('discharge'),C.green],
-    [zc('treatment'),{x:x(.68),y:y(.36)},zc('admit'),C.blue],
-    [zc('treatment'),{x:x(.68),y:y(.50)},zc('transfer'),C.amber],
+    [zc('treatment'),{x:x(.68),y:y(.21)},zc('discharge'),C.green],
+    [zc('treatment'),{x:x(.68),y:y(.32)},zc('admit'),C.blue],
+    [zc('treatment'),{x:x(.68),y:y(.43)},zc('icu'),C.red],
+    [zc('treatment'),{x:x(.68),y:y(.54)},zc('transfer'),C.amber],
   ];
   pa.forEach(function(p){
     if(p.length===3)conn(Bg,p[0].x,p[0].y,p[1].x,p[1].y,p[2]);
@@ -264,6 +267,7 @@ function applySnapshot(snap){
   (snap.patients||[]).forEach(function(p){curPatients[p.id]=p;});
   curDoctors=snap.doctors||[];
   curBedCapacity=snap.bed_capacity||10;
+  curDispoCounts=snap.disposition_counts||{discharge:0,admit:0,icu:0,transfer:0};
 
   // Agent activity — keep counts in sync for the side panel only (no particles)
   var newCounts=snap.agents||{};
@@ -405,6 +409,43 @@ function drawDots(){
   });
   drawTreatmentBeds(byZone.treatment||[], byZone.resus||[]);
   drawDoctorsAtPatients(byZone.treatment||[], byZone.resus||[]);
+  drawDispositionCounters();
+}
+
+function drawDispositionCounters(){
+  try{
+    var keys=['discharge','admit','icu','transfer'];
+    keys.forEach(function(k){
+      var z=ZONES[k]; if(!z)return;
+      var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
+      var n=(curDispoCounts[k]||0);
+      var rgb=h2r(z.col);
+      Dot.save();
+      // Hard-fill the entire zone interior so the chip is impossible to miss.
+      Dot.fillStyle='rgba(6,16,28,.95)';
+      Dot.beginPath();rr(Dot,px+1,py+1,pw-2,ph-2,6);Dot.fill();
+      Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.20)';
+      Dot.beginPath();rr(Dot,px+1,py+1,pw-2,ph-2,6);Dot.fill();
+      Dot.strokeStyle=z.col;Dot.lineWidth=1.4;Dot.globalAlpha=.95;
+      Dot.beginPath();rr(Dot,px+1,py+1,pw-2,ph-2,6);Dot.stroke();Dot.globalAlpha=1;
+      // Two-line header at top
+      Dot.fillStyle=z.col;Dot.textAlign='center';Dot.textBaseline='top';
+      var lbl=(z.lbl||k).split('\n');
+      Dot.font='800 8px Syne';
+      lbl.forEach(function(l,i){Dot.fillText(l,px+pw/2,py+3+i*9);});
+      // Giant centered number
+      var headerH=3+lbl.length*9+2;
+      var avail=ph-headerH-6;
+      var fs=Math.max(16,Math.min(32,Math.floor(avail*.85)));
+      Dot.font='900 '+fs+'px Syne Mono';
+      Dot.textBaseline='middle';
+      Dot.fillStyle=n>0?z.col:'#5a7088';
+      Dot.fillText(String(n),px+pw/2,py+headerH+avail/2);
+      Dot.restore();
+    });
+  }catch(e){
+    DIAG.lastErr='dispoCounters: '+e.message;
+  }
 }
 
 function loadColor(pct){
@@ -616,12 +657,15 @@ function togPnl(id){var el=document.getElementById(id);if(el)el.classList.toggle
 var DIAG={html:'loaded',canvas:'pending',sse:'idle',sseUrl:'',lastErr:'',snapCount:0};
 function drawDiag(){
   if(!W||!H)return;
+  var dc=curDispoCounts||{};
   var lines=[
+    'BUILD:   v4 (icu+chips)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
     'SSE URL: '+(DIAG.sseUrl||'(unset)'),
     'SNAPS:   '+DIAG.snapCount,
+    'DISPO:   home='+(dc.discharge||0)+' ward='+(dc.admit||0)+' icu='+(dc.icu||0)+' xfer='+(dc.transfer||0),
   ];
   if(DIAG.lastErr)lines.push('LAST ERR: '+DIAG.lastErr);
   var pad=8,lh=12,w=300,h=lines.length*lh+pad*2;

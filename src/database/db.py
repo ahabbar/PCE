@@ -204,6 +204,42 @@ async def update_patient_status(patient_id: str, status: str, db_path: str | Non
     logger.debug("update_patient_status | patient=%s status=%s", patient_id[:8], status)
 
 
+async def set_patient_disposition(patient_id: str, disposition: str, db_path: str | None = None) -> None:
+    """Persist the final disposition (discharge/admit/icu/transfer) on the
+    patient row. Stored in the existing `disposition_prediction` column so
+    /ed-snapshot can count outflow per destination."""
+    path = _resolve_path(db_path)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE patients SET disposition_prediction = ? WHERE patient_id = ?",
+            (disposition, patient_id),
+        )
+        await db.commit()
+    logger.debug("set_patient_disposition | patient=%s dispo=%s", patient_id[:8], disposition)
+
+
+async def count_dispositions(db_path: str | None = None) -> dict[str, int]:
+    """Tally completed patients by disposition. Only counts rows already in a
+    terminal status (seen/discharged) so in-flight patients aren't included."""
+    path = _resolve_path(db_path)
+    counts = {"discharge": 0, "admit": 0, "icu": 0, "transfer": 0}
+    try:
+        async with aiosqlite.connect(path) as db:
+            cursor = await db.execute(
+                "SELECT disposition_prediction, COUNT(*) FROM patients "
+                "WHERE status IN ('seen','discharged') AND disposition_prediction IS NOT NULL "
+                "GROUP BY disposition_prediction"
+            )
+            rows = await cursor.fetchall()
+        for dispo, n in rows:
+            key = str(dispo or "").lower()
+            if key in counts:
+                counts[key] = int(n)
+    except Exception:
+        pass
+    return counts
+
+
 async def get_recent_patients(db_path: str | None = None) -> list[dict]:
     """Return all patients from the current DB (for analytics)."""
     path = _resolve_path(db_path)
