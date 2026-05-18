@@ -269,9 +269,8 @@ def _render_patient_card(pt: dict) -> None:
 
                 disp_for_confirm = plan.get("disposition", "discharge")
                 diag_for_confirm = st.session_state.get(f"diag_{patient_id}", "")
-                cc_confirm, cc_clear = st.columns(2)
-                if cc_confirm.button("✓ Confirm & Discharge", key=f"confirm_exit_{patient_id}",
-                                     type="primary", use_container_width=True):
+                if st.button("✓ Confirm & Discharge", key=f"confirm_exit_{patient_id}",
+                             type="primary", use_container_width=True):
                     try:
                         cr = requests.post(
                             f"{API_URL}/queue/{patient_id}/discharge",
@@ -288,8 +287,8 @@ def _render_patient_card(pt: dict) -> None:
                             st.warning(f"Error {cr.status_code}: {cr.text[:100]}")
                     except Exception as exc:
                         st.warning(f"Error: {exc}")
-                if cc_clear.button("✗ Discard Plan", key=f"clear_exit_{patient_id}",
-                                   use_container_width=True):
+                if st.button("✗ Discard Plan", key=f"clear_exit_{patient_id}",
+                             use_container_width=True):
                     st.session_state.pop(exit_key, None)
                     st.rerun(scope="app")
 
