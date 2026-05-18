@@ -59,21 +59,25 @@ class GeminiProvider:
         import asyncio
         from google.genai import types as gtypes
 
-        # Disable thinking: gemini-2.5-flash thinking eats into max_output_tokens
-        # and truncates the JSON response, causing model_validate_json to fail.
-        thinking_cfg = None
+        # Disable thinking on SDKs that support it: gemini-2.5-flash thinking
+        # eats into max_output_tokens and truncates JSON. Older SDKs reject the
+        # thinking_config field entirely — fall back without it on those.
+        config_kwargs: dict[str, Any] = {
+            "system_instruction": system,
+            "temperature": temperature,
+            "max_output_tokens": max(max_tokens, 2048),
+            "response_mime_type": "application/json",
+            "response_schema": response_schema,
+        }
         try:
-            thinking_cfg = gtypes.ThinkingConfig(thinking_budget=0)
+            config_kwargs["thinking_config"] = gtypes.ThinkingConfig(thinking_budget=0)
         except Exception:
             pass
-        config = gtypes.GenerateContentConfig(
-            system_instruction=system,
-            temperature=temperature,
-            max_output_tokens=max(max_tokens, 2048),
-            response_mime_type="application/json",
-            response_schema=response_schema,
-            thinking_config=thinking_cfg,
-        )
+        try:
+            config = gtypes.GenerateContentConfig(**config_kwargs)
+        except Exception:
+            config_kwargs.pop("thinking_config", None)
+            config = gtypes.GenerateContentConfig(**config_kwargs)
 
         client = self._client
         chosen_model = model or self.default_model
