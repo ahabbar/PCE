@@ -1294,13 +1294,28 @@ with tab5, st.container(height=600, border=False):
 
 
 with tab6:
+    from pathlib import Path as _Path
+    _ED_HTML_PATH = _Path(__file__).parent.parent / "src" / "api" / "ed_view.html"
     _ed_url = f"{PUBLIC_API_URL}/ed-view"
+    _stream_url = f"{PUBLIC_API_URL}/ed-stream"
+
     st.markdown(
         "Live ED workflow — patients and AI agent activity stream from FastAPI via SSE. "
         "Particles fire on real status transitions; dots show actual occupancy in each zone."
     )
-    st.components.v1.iframe(_ed_url, height=720, scrolling=False)
+
+    try:
+        _ed_html = _ED_HTML_PATH.read_text(encoding="utf-8")
+        # Inject the absolute SSE URL so the embedded page knows where to
+        # connect (it would otherwise default to a relative /ed-stream that
+        # resolves against Streamlit's origin, where no such endpoint exists).
+        _inject = f"<script>window.PCE_STREAM_URL='{_stream_url}';</script>"
+        _ed_html = _ed_html.replace("</head>", _inject + "</head>", 1)
+        st.components.v1.html(_ed_html, height=720, scrolling=False)
+    except FileNotFoundError:
+        st.error(f"ED view HTML not found at {_ED_HTML_PATH}")
+
     st.caption(
-        f"If the panel above is blank, open directly: [{_ed_url}]({_ed_url}). "
-        "On Railway, set `PCE_PUBLIC_API_URL` on the dashboard service to the API's public URL."
+        f"Live API: [{_ed_url}]({_ed_url}) · stream: `{_stream_url}`. "
+        "On Railway, set `PCE_PUBLIC_API_URL` on the dashboard service to the API's public HTTPS URL."
     )
