@@ -35,15 +35,68 @@ def test_least_loaded_selected():
     assert result.assigned_doctor != sho1 or sho1.total_remaining_min == 0
 
 
-def test_overloaded_returns_none():
+def test_overloaded_force_assigns():
+    """Non-ESI-1 overflow: still force-assigns to least-loaded preferred role."""
     lb = fresh_balancer()
-    # Fill all doctors to max_cases
     for i, doctor in enumerate(lb.get_all_doctors()):
         for j in range(doctor.max_cases):
             doctor.active_cases.append(ActiveCase(f"pt-{i}-{j}", 3, time.time(), 15))
     result = lb.assign_patient("pt-overflow", esi_level=3)
-    assert result.assigned_doctor is None
-    assert "capacity" in result.reason.lower()
+    assert result.assigned_doctor is not None
+    assert "overflow" in result.reason.lower()
+    assert result.bumped_patient_id is None
+
+
+def test_prefers_empty_doctor_over_loaded():
+    """When two doctors of the same role are candidates, the empty one wins
+    even if the loaded one has shorter remaining time."""
+    pool = [
+        Doctor("DR1", "Dr. Loaded", DoctorRole.SHO, max_cases=2),
+        Doctor("DR2", "Dr. Empty",  DoctorRole.SHO, max_cases=2),
+    ]
+    # Loaded doctor has 1 patient with only 1 minute remaining
+    pool[0].active_cases.append(ActiveCase("old-pt", 5, time.time(), 1))
+    lb = DoctorLoadBalancer(pool)
+    result = lb.assign_patient("pt-new", esi_level=4)
+    assert result.assigned_doctor is pool[1], "should pick empty doctor first"
+
+
+def test_esi1_bumps_non_esi1_when_no_empty_doctor():
+    """ESI-1 arriving with all doctors full bumps a non-ESI-1 patient."""
+    lb = fresh_balancer()
+    # Saturate every doctor (fill to max_cases) with non-ESI-1 patients
+    for i, doctor in enumerate(lb.get_all_doctors()):
+        for j in range(doctor.max_cases):
+            doctor.active_cases.append(ActiveCase(f"victim-{i}-{j}", 4, time.time(), 10))
+    result = lb.assign_patient("pt-esi1", esi_level=1)
+    assert result.assigned_doctor is not None
+    assert result.bumped_patient_id is not None
+    assert result.bumped_patient_id.startswith("victim-")
+    # The chosen doctor should now have ESI-1 and exactly one fewer case than max
+    doc = result.assigned_doctor
+    assert doc.has_esi1
+    assert any(c.esi_level == 1 for c in doc.active_cases)
+
+
+def test_esi1_picks_empty_doctor_before_bumping():
+    """ESI-1 should fill an empty doctor first, never bump unnecessarily."""
+    lb = fresh_balancer()
+    # Fill 4 of 5 doctors with ESI-4 patients; leave one (last) empty
+    docs = lb.get_all_doctors()
+    for i, doctor in enumerate(docs[:-1]):
+        doctor.active_cases.append(ActiveCase(f"v-{i}", 4, time.time(), 10))
+    result = lb.assign_patient("pt-esi1", esi_level=1)
+    assert result.assigned_doctor is docs[-1] or len(result.assigned_doctor.active_cases) == 1
+    assert result.bumped_patient_id is None
+
+
+def test_doctor_with_esi1_is_not_available():
+    """Once a doctor holds an ESI-1, no other patient can be added."""
+    lb = fresh_balancer()
+    lb.assign_patient("pt-esi1", esi_level=1)
+    chosen = next(d for d in lb.get_all_doctors() if d.has_esi1)
+    assert not chosen.is_available
+    assert chosen.load_pct == 100.0
 
 
 def test_complete_case_frees_doctor():

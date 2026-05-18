@@ -91,6 +91,8 @@ async def update_score_on_result(
         assignment = lb.assign_patient(result.patient_id, esi_level=esi)
         if assignment.assigned_doctor:
             await queue.assign_doctor(result.patient_id, assignment.assigned_doctor.name)
+            if assignment.bumped_patient_id:
+                await queue.unassign_doctor(assignment.bumped_patient_id)
             try:
                 await log_agent_action(
                     patient_id=result.patient_id, agent_id=5,

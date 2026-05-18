@@ -51,6 +51,8 @@ async def try_cascade_assignment(freed_doctor_name: str | None = None) -> list[d
             break
 
         await queue.assign_doctor(patient.intake.patient_id, assignment.assigned_doctor.name)
+        if assignment.bumped_patient_id:
+            await queue.unassign_doctor(assignment.bumped_patient_id)
         try:
             await log_agent_action(
                 patient_id=patient.intake.patient_id, agent_id=5,

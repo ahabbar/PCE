@@ -161,6 +161,10 @@ async def triage_patient(intake: IntakeForm):
             result_count=0,
         )
         await get_queue().add_patient_record(pr)
+        if assignment.bumped_patient_id:
+            await get_queue().unassign_doctor(assignment.bumped_patient_id)
+            logger.info("ESI-1 %s bumped patient %s off %s",
+                        result.patient_id[:8], assignment.bumped_patient_id[:8], assignment.bumped_from_doctor)
     else:
         await get_queue().add_patient(result)
 
@@ -278,6 +282,10 @@ async def add_to_queue_direct(req: DirectQueueRequest):
             result_count=0,
         )
         await get_queue().add_patient_record(pr)
+        if assignment.bumped_patient_id:
+            await get_queue().unassign_doctor(assignment.bumped_patient_id)
+            logger.info("ESI-1 %s bumped patient %s off %s",
+                        req.intake.patient_id[:8], assignment.bumped_patient_id[:8], assignment.bumped_from_doctor)
         position = await get_queue().queue_depth()
     else:
         position = await get_queue().add_patient(result)
@@ -421,6 +429,10 @@ async def assign_doctor(patient_id: str, body: dict):
     queue = get_queue()
     if result.assigned_doctor:
         await queue.assign_doctor(patient_id, result.assigned_doctor.name)
+    if result.bumped_patient_id:
+        await queue.unassign_doctor(result.bumped_patient_id)
+        logger.info("ESI-%d %s bumped patient %s off %s",
+                    esi_level, patient_id[:8], result.bumped_patient_id[:8], result.bumped_from_doctor)
     return {
         "patient_id": patient_id,
         "assigned": result.assigned_doctor is not None,

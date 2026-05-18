@@ -83,6 +83,24 @@ class QueueManager:
                     result_count=r.result_count,
                 )
 
+    async def unassign_doctor(self, patient_id: str) -> None:
+        """Clear assigned_doctor and revert status to 'waiting'. Used when an
+        incoming ESI-1 bumps this patient off their doctor so they can be
+        re-cascaded later."""
+        async with self._lock:
+            if patient_id in self._patients:
+                r = self._patients[patient_id]
+                self._patients[patient_id] = PatientRecord(
+                    intake=r.intake,
+                    esi_result=r.esi_result,
+                    triage_score=r.triage_score,
+                    red_flag=r.red_flag,
+                    workup=r.workup,
+                    status="waiting",
+                    assigned_doctor=None,
+                    result_count=r.result_count,
+                )
+
     async def discharge(self, patient_id: str) -> None:
         async with self._lock:
             self._patients.pop(patient_id, None)
