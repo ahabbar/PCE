@@ -169,7 +169,7 @@ function rr(c,px,py,pw,ph,r){r=r||7;c.beginPath();c.moveTo(px+r,py);c.lineTo(px+
 var ZONES={
   arrival:   {rx:.01,ry:.22,rw:.08,rh:.20,lbl:'Patient\nArrival',col:C.muted},
   triage:    {rx:.11,ry:.18,rw:.11,rh:.30,lbl:'Triage\nStation\n(Nurse)',col:C.teal},
-  waiting:   {rx:.24,ry:.20,rw:.10,rh:.30,lbl:'Waiting\nRoom',col:C.muted},
+  waiting:   {rx:.23,ry:.16,rw:.12,rh:.40,lbl:'Waiting\nRoom',col:C.muted},
   resus:     {rx:.36,ry:.03,rw:.30,rh:.11,lbl:'Resus Bay — ESI-1 Only',col:C.red},
   treatment: {rx:.36,ry:.16,rw:.30,rh:.40,lbl:'',col:C.orange},
   lab:       {rx:.36,ry:.58,rw:.10,rh:.12,lbl:'Laboratory\n(LIS)',col:C.yellow},
@@ -376,19 +376,23 @@ function drawPatientDot(ctx,p,dx,dy,r){
   // 2X / 4X / 30X buttons visibly fast-forward the wait timer too.
   var liveWaitMin=((p.wait_min||0)+dtSinceSnap/60)*speed;
   var wt=fmtWait(liveWaitMin);
-  if(wt){
+  // Hide wait + PID labels for tiny dots (when packDotsInRect shrank
+  // r below 6) so dense waiting rooms still render cleanly.
+  if(wt && r>=6){
     ctx.fillStyle=C.text;ctx.font='800 8px Syne Mono';ctx.textAlign='center';ctx.textBaseline='bottom';
     ctx.globalAlpha=.9;
     ctx.fillText(wt,dx,dy-r-2);
     ctx.globalAlpha=1;
   }
-  // ESI inside
+  // ESI inside (always shown so each dot is identifiable)
   var esi=(p.esi==null)?'?':String(p.esi);
-  ctx.fillStyle='#03080f';ctx.font='800 '+Math.round(r*1.25)+'px Syne Mono';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle='#03080f';ctx.font='800 '+Math.round(Math.max(7,r*1.25))+'px Syne Mono';ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText(esi,dx,dy+.5);
-  // Patient ID BELOW dot
-  ctx.fillStyle=C.text;ctx.font='600 7px Syne Mono';ctx.textBaseline='top';ctx.globalAlpha=.85;
-  ctx.fillText(shortPid(p.id),dx,dy+r+2);ctx.globalAlpha=1;
+  // Patient ID BELOW dot — only if dot is large enough
+  if(r>=6){
+    ctx.fillStyle=C.text;ctx.font='600 7px Syne Mono';ctx.textBaseline='top';ctx.globalAlpha=.85;
+    ctx.fillText(shortPid(p.id),dx,dy+r+2);ctx.globalAlpha=1;
+  }
   // ESI-1 ICU countdown — ticks down smoothly at sim speed.
   // sim_to_icu_min is in *simulated* minutes; subtract wall-seconds × speed.
   if(parseInt(p.esi,10)===1 && p.sim_to_icu_min!=null){
@@ -414,22 +418,33 @@ var dotPositions={};
 function recordDotPos(p,dx,dy,r){dotPositions[p.id]={x:dx,y:dy,r:r};}
 
 function packDotsInRect(list,px,py,pw,ph,dotR,gap){
-  // Reserve ~10px above each dot for wait label, ~10px below for patient id
-  var colW=dotR*2+gap+12;
-  var rowH=dotR*2+20+gap;
-  var perRow=Math.max(1,Math.floor((pw-8)/colW));
-  var maxRows=Math.max(1,Math.floor((ph-6)/rowH));
-  var max=perRow*maxRows;
-  var startX=px+6+dotR,startY=py+10+dotR;
-  list.slice(0,max).forEach(function(p,i){
-    var row=Math.floor(i/perRow),colN=i%perRow;
-    var dx=startX+colN*colW,dy=startY+row*rowH;
-    drawPatientDot(Dot,p,dx,dy,dotR);
-    recordDotPos(p,dx,dy,dotR);
+  if(list.length===0)return;
+  // Shrink dot radius down to MIN_R so ALL patients fit in the zone
+  // (otherwise adding a 9th patient appears to "not be queued" because
+  // it hides in the "+N" overflow indicator).
+  var MIN_R=3;
+  var r=dotR;
+  function capacityAt(rad){
+    var cw=rad*2+gap+12,rh=rad*2+20+gap;
+    var pr=Math.max(1,Math.floor((pw-8)/cw));
+    var mr=Math.max(1,Math.floor((ph-6)/rh));
+    return {perRow:pr,maxRows:mr,max:pr*mr,colW:cw,rowH:rh};
+  }
+  var cap=capacityAt(r);
+  while(list.length>cap.max && r>MIN_R){
+    r-=1;
+    cap=capacityAt(r);
+  }
+  var startX=px+6+r,startY=py+10+r;
+  list.slice(0,cap.max).forEach(function(p,i){
+    var row=Math.floor(i/cap.perRow),colN=i%cap.perRow;
+    var dx=startX+colN*cap.colW,dy=startY+row*cap.rowH;
+    drawPatientDot(Dot,p,dx,dy,r);
+    recordDotPos(p,dx,dy,r);
   });
-  if(list.length>max){
+  if(list.length>cap.max){
     Dot.fillStyle=C.text;Dot.font='700 9px Syne Mono';Dot.textAlign='left';Dot.textBaseline='top';
-    Dot.fillText('+'+(list.length-max),px+6,py+ph-12);
+    Dot.fillText('+'+(list.length-cap.max),px+6,py+ph-12);
   }
 }
 
@@ -450,8 +465,18 @@ function drawDots(){
     var list=byZone[zk];
     var areaY=py+18,areaH=ph-22;
     packDotsInRect(list,px,areaY,pw,areaH,8,4);
-    Dot.fillStyle=z.col;Dot.font='800 11px Syne Mono';Dot.textAlign='right';Dot.textBaseline='top';
-    Dot.fillText(list.length,px+pw-6,py+4);
+    // Prominent count pill so the user sees the *true* number of patients
+    // in the zone even if dots had to shrink or overflow.
+    var cn=String(list.length);
+    Dot.font='800 14px Syne Mono';
+    var tw=Dot.measureText(cn).width;
+    Dot.fillStyle='rgba(0,0,0,.55)';
+    Dot.beginPath();
+    if(Dot.roundRect){Dot.roundRect(px+pw-tw-14,py+3,tw+10,18,4);}
+    else{Dot.rect(px+pw-tw-14,py+3,tw+10,18);}
+    Dot.fill();
+    Dot.fillStyle=z.col;Dot.textAlign='right';Dot.textBaseline='top';
+    Dot.fillText(cn,px+pw-8,py+5);
   });
   drawTreatmentBeds(byZone.treatment||[], byZone.resus||[]);
   drawDoctorsAtPatients(byZone.treatment||[], byZone.resus||[]);
@@ -735,7 +760,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v9 (speed-scaled)',
+    'BUILD:   v10 (big waiting)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
