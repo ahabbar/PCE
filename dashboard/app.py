@@ -775,7 +775,6 @@ with tab1:
 
 # ── Tab 2: Live Queue ─────────────────────────────────────────────────────────
 
-@st.fragment
 def _render_live_queue_tab() -> None:
     st.subheader("Live Patient Queue")
     st.error(
@@ -785,7 +784,7 @@ def _render_live_queue_tab() -> None:
     )
     if st.button("Refresh", key="queue_refresh"):
         st.cache_data.clear()
-        st.rerun(scope="fragment")
+        st.rerun()
 
     status, queue_data = _api_get_json("/queue", timeout=10)
     if status != 200 or queue_data is None:
@@ -831,7 +830,7 @@ def _render_live_queue_tab() -> None:
                                  use_container_width=True,
                                  disabled=is_sel):
                         st.session_state[sel_key] = pt["patient_id"]
-                        st.rerun(scope="fragment")
+                        st.rerun()
 
         with detail_col:
             pt = next((p for p in patients if p["patient_id"] == st.session_state[sel_key]), patients[0])
@@ -897,7 +896,6 @@ with tab2:
 
 # ── Tab 3: Lab Results ───────────────────────────────────────────────────────
 
-@st.fragment
 def _render_lab_results_tab() -> None:
     st.subheader("Lab Results Entry")
     st.caption("Laboratory technician workspace — enter results for approved investigations")
@@ -907,7 +905,7 @@ def _render_lab_results_tab() -> None:
             if k.startswith("labtech_"):
                 del st.session_state[k]
         st.cache_data.clear()
-        st.rerun(scope="fragment")
+        st.rerun()
 
     lq_status, lq_data = _api_get_json("/queue", timeout=10)
     lab_patients = lq_data.get("patients", []) if (lq_status == 200 and lq_data) else []
@@ -942,7 +940,7 @@ def _render_lab_results_tab() -> None:
                              use_container_width=True,
                              disabled=is_sel):
                     st.session_state[sel_key] = lpt["patient_id"]
-                    st.rerun(scope="fragment")
+                    st.rerun()
 
     with detail_col:
         lpt = next((p for p in lab_patients if p["patient_id"] == st.session_state[sel_key]), lab_patients[0])
