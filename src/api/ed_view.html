@@ -296,60 +296,10 @@ function applySnapshot(snap){
   (snap.patients||[]).forEach(function(p){curPatients[p.id]=p;});
   curDoctors=snap.doctors||[];
 
-  // Detect new patients (no prev) → arrival particle
-  Object.keys(curPatients).forEach(function(id){
-    var cur=curPatients[id];
-    var prev=prevPatients[id];
-    if(!prev){
-      var col=cur.is_red?C.red:(cur.esi<=2?C.orange:cur.esi<=3?C.yellow:cur.esi<=4?C.green:C.blue);
-      spawn(pathArrivalToWaiting(),col,.10,4,'P');
-    } else {
-      // Status transitions
-      if(prev.status==='waiting' && (cur.status==='workup'||cur.status==='results'||cur.status==='assigned')){
-        spawn(pathWaitingToBed(cur.esi),C.orange,.13,3.5);
-      }
-      if(prev.status!=='assigned' && cur.status==='assigned'){
-        spawn(pathBedToDoctor(cur.esi),C.purple,.12,3.5,'asn');
-      }
-      if((prev.status==='workup'||prev.status==='results') && cur.status==='discharged'){
-        spawn(pathDoctorToDischarge('discharge'),C.green,.10,4,'exit');
-      }
-      if(prev.status==='assigned' && cur.status==='discharged'){
-        spawn(pathDoctorToDischarge('discharge'),C.green,.10,4,'exit');
-      }
-      // Lab result(s) came in → spawn lab→doctor pulse per increment
-      var delta=(cur.result_count||0)-(prev.result_count||0);
-      for(var k=0;k<delta&&k<5;k++){
-        spawn(pathLabCycle(cur.esi),C.yellow,.14,3,'res');
-      }
-    }
-  });
-
-  // Detect departures (prev had but cur doesn't) — already discharged in DB, spawn exit
-  Object.keys(prevPatients).forEach(function(id){
-    if(!curPatients[id]){
-      spawn(pathDoctorToDischarge('discharge'),C.green,.12,4,'out');
-    }
-  });
-
-  // Agent activity — diff counts and spawn pulses
+  // Agent activity — keep counts in sync for the side panel only (no particles)
   var newCounts=snap.agents||{};
   ['A1','A2','A3','A4','A5','A6','A7'].forEach(function(k){
-    var cur=newCounts[k]||0,prev=agentCounts[k]||0;
-    // If this is the FIRST snapshot, do not back-spawn; just record baseline.
-    if(snapTs!==0){
-      var delta=cur-prev;
-      // Window-based counts can fluctuate, so spawn only on increase
-      if(delta>0){
-        var sources={A1:'triage',A2:'triage',A3:'waiting',A4:'lab',A5:'doctor',A6:'doctor',A7:'discharge'};
-        var cols={A1:C.orange,A2:C.red,A3:C.teal,A4:C.yellow,A5:C.purple,A6:C.blue,A7:C.green};
-        var ak='a'+k.charAt(1);
-        for(var d=0;d<delta&&d<3;d++){
-          spawn(pathAgentTrigger(ak,sources[k]),cols[k],.20,3,k);
-        }
-      }
-    }
-    agentCounts[k]=cur;
+    agentCounts[k]=newCounts[k]||0;
   });
 
   // Update panel metrics
@@ -406,38 +356,45 @@ function drawDots(){
     var p=curPatients[id],z=zoneFor(p);
     (byZone[z]=byZone[z]||[]).push(p);
   });
+  // Reserve top strip of treatment zone for doctor pills
+  var docReserveH=docReservedHeight();
   Object.keys(byZone).forEach(function(zk){
     var z=ZONES[zk];if(!z)return;
     var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
     var list=byZone[zk];
-    var dotR=4,gap=4,perRow=Math.max(2,Math.floor((pw-12)/(dotR*2+gap)));
-    var startX=px+8,startY=py+ph-dotR-6;
-    list.slice(0,18).forEach(function(p,i){
+    var dotR=9,gap=5,perRow=Math.max(2,Math.floor((pw-12)/(dotR*2+gap)));
+    var bottomPad=6;
+    // If this zone is treatment, push dots below the doctor strip
+    var areaBottom=py+ph-dotR-bottomPad;
+    var areaTop=py+(zk==='treatment'?docReserveH+6:18);
+    var startX=px+8,startY=areaBottom;
+    var maxRows=Math.max(1,Math.floor((areaBottom-areaTop)/(dotR*2+gap)));
+    var maxDots=perRow*maxRows;
+    list.slice(0,maxDots).forEach(function(p,i){
       var col=colorForPatient(p);
       var row=Math.floor(i/perRow),colN=i%perRow;
       var dx=startX+colN*(dotR*2+gap),dy=startY-row*(dotR*2+gap);
       var rgb=h2r(col);
-      // Gentle breathing on every dot so they look alive
-      var breathe=.85+.15*Math.sin(simT*1.6+i*.6);
-      var g=Dot.createRadialGradient(dx,dy,0,dx,dy,dotR*3*breathe);
-      g.addColorStop(0,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',.7)');
+      // Halo
+      var g=Dot.createRadialGradient(dx,dy,0,dx,dy,dotR*2.2);
+      g.addColorStop(0,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',.55)');
       g.addColorStop(1,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',0)');
-      Dot.fillStyle=g;Dot.beginPath();Dot.arc(dx,dy,dotR*3*breathe,0,6.28);Dot.fill();
+      Dot.fillStyle=g;Dot.beginPath();Dot.arc(dx,dy,dotR*2.2,0,6.28);Dot.fill();
+      // Solid dot
       Dot.fillStyle=col;Dot.beginPath();Dot.arc(dx,dy,dotR,0,6.28);Dot.fill();
+      // Red-flag throb ring
       if(p.is_red){
-        Dot.strokeStyle='#fff';Dot.lineWidth=1.2;Dot.globalAlpha=.4+.6*Math.abs(Math.sin(simT*4));
+        Dot.strokeStyle='#fff';Dot.lineWidth=1.3;Dot.globalAlpha=.45+.55*Math.abs(Math.sin(simT*4));
         Dot.beginPath();Dot.arc(dx,dy,dotR+3,0,6.28);Dot.stroke();Dot.globalAlpha=1;
       }
-      // Show short patient id below dot when zone is roomy
-      if(pw>x(.08)&&perRow>=3){
-        Dot.fillStyle=C.muted;Dot.font='600 6.5px Syne Mono';Dot.textAlign='center';Dot.textBaseline='top';
-        var sid=(p.id||'').replace('DEMO-','').replace('PAT-','').slice(-3);
-        Dot.fillText(sid,dx,dy+dotR+2);
-      }
+      // ESI number inside dot
+      var esi=(p.esi==null)?'?':String(p.esi);
+      Dot.fillStyle='#03080f';Dot.font='800 11px Syne Mono';Dot.textAlign='center';Dot.textBaseline='middle';
+      Dot.fillText(esi,dx,dy+.5);
     });
-    if(list.length>18){
-      Dot.fillStyle=C.text;Dot.font='700 9px Syne Mono';Dot.textAlign='left';
-      Dot.fillText('+'+(list.length-18),startX,startY+12);
+    if(list.length>maxDots){
+      Dot.fillStyle=C.text;Dot.font='700 9px Syne Mono';Dot.textAlign='left';Dot.textBaseline='alphabetic';
+      Dot.fillText('+'+(list.length-maxDots),startX,areaBottom+14);
     }
     // Zone occupancy count badge
     Dot.fillStyle=z.col;Dot.font='800 11px Syne Mono';Dot.textAlign='right';Dot.textBaseline='top';
@@ -453,39 +410,42 @@ function loadColor(pct){
   return C.green;
 }
 
+function docSlotH(){return 18;}
+function docReservedHeight(){
+  if(!curDoctors||!curDoctors.length)return 0;
+  return 16+curDoctors.length*docSlotH();
+}
+
 function drawDoctors(){
   if(!W||!curDoctors||!curDoctors.length)return;
-  var z=ZONES.doctor;
-  var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
-  // Lay doctors out in a column inside the doctor zone
-  var n=curDoctors.length,padTop=14,padBot=6;
-  var slotH=Math.min(20,(ph-padTop-padBot)/Math.max(1,n));
+  var z=ZONES.treatment;
+  if(!z)return;
+  var px=x(z.rx),py=y(z.ry),pw=x(z.rw);
+  var slotH=docSlotH();
   var pillW=pw-12,pillX=px+6;
-  curDoctors.forEach(function(d,i){
-    var sy=py+padTop+i*slotH;
-    var col=loadColor(d.load_pct);
-    var rgb=h2r(col);
-    // Pill background
-    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.10)';
-    Dot.beginPath();rr(Dot,pillX,sy,pillW,slotH-2,4);Dot.fill();
-    Dot.strokeStyle=col;Dot.lineWidth=.8;Dot.globalAlpha=.7;
-    Dot.beginPath();rr(Dot,pillX,sy,pillW,slotH-2,4);Dot.stroke();Dot.globalAlpha=1;
-    // Name + load
-    Dot.fillStyle=col;Dot.font='700 9px Syne';Dot.textAlign='left';Dot.textBaseline='middle';
-    Dot.fillText(d.name||d.id,pillX+6,sy+slotH/2-1);
-    Dot.fillStyle=C.muted;Dot.font='600 7px Syne Mono';
-    var roleAbbr={consultant:'CONS',senior_registrar:'SR',registrar:'REG',sho:'SHO'}[d.role]||'';
-    Dot.fillText(roleAbbr,pillX+6,sy+slotH-5);
-    Dot.fillStyle=col;Dot.font='700 8px Syne Mono';Dot.textAlign='right';
-    Dot.fillText(d.active+'/'+d.max,pillX+pillW-6,sy+slotH/2-1);
-    // Load bar
-    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.7)';
-    var barW=(pillW-12)*Math.min(1,d.load_pct/100);
-    Dot.fillRect(pillX+6,sy+slotH-4,barW,1.5);
-  });
   // Header
   Dot.fillStyle=C.muted;Dot.font='700 8px Syne Mono';Dot.textAlign='left';Dot.textBaseline='top';
   Dot.fillText('DOCTORS ('+curDoctors.length+')',px+6,py+4);
+  curDoctors.forEach(function(d,i){
+    var sy=py+16+i*slotH;
+    var col=loadColor(d.load_pct);
+    var rgb=h2r(col);
+    // Pill background
+    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.12)';
+    Dot.beginPath();rr(Dot,pillX,sy,pillW,slotH-2,3);Dot.fill();
+    Dot.strokeStyle=col;Dot.lineWidth=.8;Dot.globalAlpha=.7;
+    Dot.beginPath();rr(Dot,pillX,sy,pillW,slotH-2,3);Dot.stroke();Dot.globalAlpha=1;
+    // Name + role + load count
+    var roleAbbr={consultant:'CONS',senior_registrar:'SR',registrar:'REG',sho:'SHO'}[d.role]||'';
+    Dot.fillStyle=col;Dot.font='700 9px Syne';Dot.textAlign='left';Dot.textBaseline='middle';
+    Dot.fillText((d.name||d.id)+(roleAbbr?' \u00b7 '+roleAbbr:''),pillX+5,sy+slotH/2-1);
+    Dot.fillStyle=col;Dot.font='700 9px Syne Mono';Dot.textAlign='right';
+    Dot.fillText(d.active+'/'+d.max,pillX+pillW-5,sy+slotH/2-1);
+    // Load bar
+    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.7)';
+    var barW=(pillW-10)*Math.min(1,d.load_pct/100);
+    Dot.fillRect(pillX+5,sy+slotH-4,barW,1.5);
+  });
 }
 
 // Continuous "presence" pulses — every patient emits a slow particle
@@ -535,11 +495,7 @@ function loop(ts){
   if(!play){last=null;return;}
   if(!last){last=ts;return;}
   var dt=Math.min((ts-last)/1000,.05);last=ts;simT+=dt*speed;
-  tickPresencePulses(dt*speed);
-  for(var i=parts.length-1;i>=0;i--){parts[i].update(dt*speed);if(!parts[i].alive)parts.splice(i,1);}
-  Pt.clearRect(0,0,W,H);
-  parts.forEach(function(p){p.draw(Pt);});
-  // Continuously repaint dots so breathing + red-flag pulse animate smoothly
+  // Repaint dots each frame so red-flag throb animates smoothly
   drawDots();
 }
 requestAnimationFrame(loop);
