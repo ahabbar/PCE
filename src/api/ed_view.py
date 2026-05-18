@@ -37,10 +37,34 @@ _AGENT_WINDOW_SEC = 5
 _SIM_SPEED: float = 1.0
 # ESI-1 patients are auto-moved to ICU after this many simulated minutes.
 _ESI1_ICU_SIM_MIN: float = 30.0
-# Server-side simulated-clock accumulator so the HH:MM:SS pill survives
-# page refreshes (client used to reset to 00:00:00 on every reload).
-_SIM_TIME_SEC: float = 0.0
-_SIM_LAST_TICK: float | None = None
+# Server-side simulated-clock. Computed as a function of wall time so the
+# sim advances continuously at the chosen speed even if no snapshot ticks
+# are happening (e.g. when no SSE client is connected). On every speed
+# change we "lock in" the current sim_time and reset the wall epoch.
+_SIM_TIME_AT_EPOCH: float = 0.0
+_WALL_AT_EPOCH: float | None = None
+
+
+def _sim_now() -> float:
+    """Return the current simulated time in seconds, derived from wall time."""
+    if _WALL_AT_EPOCH is None:
+        return 0.0
+    return _SIM_TIME_AT_EPOCH + (time.time() - _WALL_AT_EPOCH) * _SIM_SPEED
+
+
+def _set_sim_speed(new_speed: float) -> None:
+    """Update _SIM_SPEED without discontinuity: lock in current sim_time so
+    speed changes only affect the *rate* of sim advancement, not its value."""
+    global _SIM_TIME_AT_EPOCH, _WALL_AT_EPOCH, _SIM_SPEED
+    _SIM_TIME_AT_EPOCH = _sim_now()
+    _WALL_AT_EPOCH = time.time()
+    _SIM_SPEED = max(0.1, min(60.0, float(new_speed)))
+
+
+def reset_patient_sim_arrivals() -> None:
+    """Drop every patient's recorded sim-arrival. Called from /demo/seed so
+    re-seeding with reused PIDs doesn't keep the old wait."""
+    _PATIENT_SIM_ARRIVAL.clear()
 # Per-patient sim-time at which they entered the queue. Lets us report a
 # wait that accelerates correctly when the user bumps sim speed (instead
 # of just inflating the displayed number once on speed change).
@@ -57,8 +81,9 @@ def _patient_to_dict(p) -> dict:
     # the per-patient sim_arrival registered in _build_snapshot, so wait
     # advances at the current sim_speed (instead of being a wall value
     # multiplied for display).
-    sim_arrival = _PATIENT_SIM_ARRIVAL.get(pid, _SIM_TIME_SEC)
-    wait_sim_sec = max(0.0, _SIM_TIME_SEC - sim_arrival)
+    sim_now = _sim_now()
+    sim_arrival = _PATIENT_SIM_ARRIVAL.get(pid, sim_now)
+    wait_sim_sec = max(0.0, sim_now - sim_arrival)
     wait_sim_min = wait_sim_sec / 60.0
     sim_to_icu_min = None
     if esi == 1:
@@ -128,8 +153,9 @@ async def _auto_progress_esi1() -> int:
         if not (score and int(score.esi_level) == 1):
             continue
         pid = p.intake.patient_id
-        sim_arrival = _PATIENT_SIM_ARRIVAL.get(pid, _SIM_TIME_SEC)
-        sim_elapsed_min = max(0.0, _SIM_TIME_SEC - sim_arrival) / 60.0
+        sim_now = _sim_now()
+        sim_arrival = _PATIENT_SIM_ARRIVAL.get(pid, sim_now)
+        sim_elapsed_min = max(0.0, sim_now - sim_arrival) / 60.0
         if sim_elapsed_min < _ESI1_ICU_SIM_MIN:
             logger.debug(
                 "esi1 not yet ready | patient=%s sim_elapsed=%.1fmin "
@@ -162,18 +188,18 @@ async def _auto_progress_esi1() -> int:
 
 
 async def _build_snapshot() -> dict:
-    global _SIM_TIME_SEC, _SIM_LAST_TICK
+    global _WALL_AT_EPOCH
     now_wall = time.time()
-    if _SIM_LAST_TICK is None:
-        _SIM_LAST_TICK = now_wall
-    dt_wall = max(0.0, now_wall - _SIM_LAST_TICK)
-    _SIM_TIME_SEC += dt_wall * _SIM_SPEED
-    _SIM_LAST_TICK = now_wall
+    # First-ever call: anchor the sim epoch to now so _sim_now() begins
+    # ticking. Subsequent calls just read _sim_now() — no accumulator.
+    if _WALL_AT_EPOCH is None:
+        _WALL_AT_EPOCH = now_wall
+    sim_now_sec = _sim_now()
 
     # Register sim-arrival for any patient we haven't seen before, and
     # forget patients that have left the queue. Sim-arrival is backfilled
-    # from the patient's wall arrival_time so a demo-seed patient that
-    # claims to have been waiting an hour shows up as 60min wait — not 0.
+    # from the patient's wall arrival_time (scaled by current sim_speed)
+    # so a patient with a pre-seeded wall arrival shows the right wait.
     queue_for_arrival = get_queue()
     sorted_for_arrival = await queue_for_arrival.get_sorted_queue()
     current_ids = set()
@@ -181,8 +207,10 @@ async def _build_snapshot() -> dict:
         _pid = _p.intake.patient_id
         current_ids.add(_pid)
         if _pid not in _PATIENT_SIM_ARRIVAL:
+            # Treat pre-existing wall-wait as having accumulated at 1x sim
+            # (any acceleration only applies going forward).
             wall_age_sec = max(0.0, now_wall - _p.intake.arrival_time)
-            _PATIENT_SIM_ARRIVAL[_pid] = _SIM_TIME_SEC - wall_age_sec
+            _PATIENT_SIM_ARRIVAL[_pid] = sim_now_sec - wall_age_sec
     for _pid in list(_PATIENT_SIM_ARRIVAL.keys()):
         if _pid not in current_ids:
             _PATIENT_SIM_ARRIVAL.pop(_pid, None)
@@ -259,7 +287,7 @@ async def _build_snapshot() -> dict:
         "bed_capacity": BED_CAPACITY,
         "disposition_counts": dispo_counts,
         "sim_speed": _SIM_SPEED,
-        "sim_time_sec": _SIM_TIME_SEC,
+        "sim_time_sec": _sim_now(),
         "esi1_icu_sim_min": _ESI1_ICU_SIM_MIN,
         "metrics": {
             "in_ed": len(pts),
@@ -284,15 +312,15 @@ async def ed_snapshot():
 
 @router.post("/ed-sim-speed")
 async def set_sim_speed(body: dict):
-    """Client sends {speed: N} (1, 2, 4, 30 …) to set the simulated-clock
-    multiplier. Affects ESI-1 → ICU auto-progression timing only."""
-    global _SIM_SPEED
+    """Client sends {speed: N} to set the simulated-clock multiplier.
+    Uses _set_sim_speed() so the sim_time value is preserved across the
+    speed change — only the *rate* of future advancement changes."""
     try:
         s = float(body.get("speed", 1))
-        _SIM_SPEED = max(0.1, min(60.0, s))
     except (TypeError, ValueError):
-        _SIM_SPEED = 1.0
-    return {"sim_speed": _SIM_SPEED}
+        s = 1.0
+    _set_sim_speed(s)
+    return {"sim_speed": _SIM_SPEED, "sim_time_sec": _sim_now()}
 
 
 @router.get("/ed-view", response_class=HTMLResponse)

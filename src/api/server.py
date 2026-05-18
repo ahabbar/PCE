@@ -716,12 +716,18 @@ async def demo_seed():
     get_load_balancer().reset_all()
     # Wipe DB so old panel rows (e.g. "CBC") don't persist across seeds
     await clear_non_permanent_patients()
+    # Forget per-patient sim arrivals so re-seeded DEMO-001 etc. start fresh
+    from src.api.ed_view import reset_patient_sim_arrivals
+    reset_patient_sim_arrivals()
 
     seeded = 0
-    base_time = _t.time() - 3600
+    # Seeded patients arrive as if they just walked in (0-2 min ago) so the
+    # canvas wait timer starts near 0 and visibly ticks up at sim_speed,
+    # instead of dumping pre-baked 55m / 1h waits on the screen.
+    base_time = _t.time()
     for i, sp in enumerate(SEED_PATIENTS):
         pid = f"DEMO-{i+1:03d}"
-        arrival = base_time + i * 300
+        arrival = base_time - i * 30
         vitals = sp.get("vitals", {})
         intake = IntakeForm(
             patient_id=pid, arrival_time=arrival,

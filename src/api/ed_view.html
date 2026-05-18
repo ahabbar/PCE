@@ -68,10 +68,9 @@ canvas{position:absolute;inset:0}
       <span id="simClock">00:00:00</span>
     </div>
     <button class="btn on" id="bPlay" onclick="tog()">&#9646;&#9646; Pause</button>
-    <button class="btn" id="s1" onclick="spd(1)">1&times;</button>
-    <button class="btn on" id="s2" onclick="spd(2)">2&times;</button>
-    <button class="btn" id="s4" onclick="spd(4)">4&times;</button>
-    <button class="btn" id="s30" onclick="spd(30)">30&times;</button>
+    <button class="btn" id="spdMinus" onclick="spdStep(-1)" title="Slower">&minus;</button>
+    <span class="btn on" id="spdLabel" style="cursor:default;min-width:46px;text-align:center">2&times;</span>
+    <button class="btn" id="spdPlus" onclick="spdStep(1)" title="Faster">+</button>
   </div>
 </div>
 <div id="vis">
@@ -283,7 +282,11 @@ function applySnapshot(snap){
     simTServer=snap.sim_time_sec;
     simTServerAt=Date.now()/1000;
   }
-  if(typeof snap.sim_speed==='number'){speed=snap.sim_speed;}
+  if(typeof snap.sim_speed==='number'){
+    speed=snap.sim_speed;
+    var lbl=document.getElementById('spdLabel');
+    if(lbl)lbl.textContent=_spdLabel(speed);
+  }
 
   // Agent activity — keep counts in sync for the side panel only (no particles)
   var newCounts=snap.agents||{};
@@ -735,19 +738,47 @@ requestAnimationFrame(loop);
 
 // ─── Controls ─────────────────────────────────────────────────────────
 function tog(){play=!play;var b=document.getElementById('bPlay');b.textContent=play?'\u23F8 Pause':'\u25B6 Resume';b.className=play?'btn on':'btn';if(play)last=null;}
+// Multiplier ladder for the +/- speed stepper.
+var SPD_STEPS=[1,2,4,8,15,30,60];
+function _spdLabel(s){
+  // Compact label: "1×" / "2×" / "30×" — strip trailing .0 if any.
+  var v=(s%1===0)?String(Math.round(s)):s.toFixed(1);
+  return v+'\u00D7';
+}
 function spd(s){
-  speed=s;
-  ['s1','s2','s4','s30'].forEach(function(id){var el=document.getElementById(id);if(el)el.className='btn';});
-  var on=document.getElementById('s'+s); if(on)on.className='btn on';
-  // Tell the server about the new speed so it can age ESI-1 patients faster
+  // Snap requested speed to the nearest ladder entry so the stepper
+  // can find its index. (Old callers pass 1/2/4/30 — all in the ladder.)
+  var idx=0,best=Infinity;
+  for(var i=0;i<SPD_STEPS.length;i++){
+    var d=Math.abs(SPD_STEPS[i]-s);
+    if(d<best){best=d;idx=i;}
+  }
+  speed=SPD_STEPS[idx];
+  var lbl=document.getElementById('spdLabel');
+  if(lbl)lbl.textContent=_spdLabel(speed);
+  // Tell the server about the new speed so it can age patients faster.
   try{
     var apiBase=(window.PCE_STREAM_URL||'').replace(/\/ed-stream$/,'');
     fetch(apiBase+'/ed-sim-speed',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({speed:s}),
+      body:JSON.stringify({speed:speed}),
     }).catch(function(){});
   }catch(e){}
+}
+function spdStep(dir){
+  // Find current speed's ladder index, step by dir (+1/-1), clamp, apply.
+  var idx=SPD_STEPS.indexOf(speed);
+  if(idx<0){
+    // Current speed not in ladder — pick nearest and start from there.
+    var best=Infinity;
+    for(var i=0;i<SPD_STEPS.length;i++){
+      var d=Math.abs(SPD_STEPS[i]-speed);
+      if(d<best){best=d;idx=i;}
+    }
+  }
+  idx=Math.max(0,Math.min(SPD_STEPS.length-1,idx+dir));
+  spd(SPD_STEPS[idx]);
 }
 function fmtClock(secs){
   var s=Math.max(0,Math.floor(secs));
@@ -763,7 +794,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v11 (real sim time)',
+    'BUILD:   v12 (\u00B1 stepper)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
