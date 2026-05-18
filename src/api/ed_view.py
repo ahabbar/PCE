@@ -13,7 +13,12 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.agents.bed_manager import BED_CAPACITY, auto_fill_beds
 from src.agents.load_balancer import get_load_balancer
-from src.database.db import count_dispositions, get_recent_patients
+from src.database.db import (
+    count_dispositions,
+    get_recent_patients,
+    set_patient_disposition,
+    update_patient_status,
+)
 from src.orchestrator.queue import get_queue
 
 logger = logging.getLogger("pce.ed_view")
@@ -26,6 +31,12 @@ _DB_PATH = os.getenv("PCE_DB_PATH", "data/pce_demo.db")
 _TICK_SECONDS = 1.5
 # Agent-firings window the front-end pulses on
 _AGENT_WINDOW_SEC = 5
+# Simulated-clock speed multiplier (1x by default, can be raised to 30x).
+# Client posts to /ed-sim-speed; ESI-1 auto-progression uses this to age
+# patients faster so 30 sim-minutes elapse in 1 wall minute at 30x.
+_SIM_SPEED: float = 1.0
+# ESI-1 patients are auto-moved to ICU after this many simulated minutes.
+_ESI1_ICU_SIM_MIN: float = 30.0
 
 
 def _patient_to_dict(p) -> dict:
@@ -77,7 +88,43 @@ async def _lab_utilization_pct() -> int:
         return 0
 
 
+async def _auto_progress_esi1() -> int:
+    """Move any ESI-1 patient who has been in the ED for ≥ 30 simulated
+    minutes to ICU: persist disposition='icu', free the doctor, remove from
+    queue. Returns the number of patients transitioned."""
+    queue = get_queue()
+    lb = get_load_balancer()
+    sorted_q = await queue.get_sorted_queue()
+    now = time.time()
+    moved = 0
+    for p in sorted_q:
+        score = p.triage_score
+        if not (score and score.esi_level == 1):
+            continue
+        sim_elapsed_min = ((now - p.intake.arrival_time) / 60.0) * _SIM_SPEED
+        if sim_elapsed_min < _ESI1_ICU_SIM_MIN:
+            continue
+        pid = p.intake.patient_id
+        try:
+            await update_patient_status(pid, "seen")
+            await set_patient_disposition(pid, "icu")
+        except Exception as exc:
+            logger.debug("esi1 db update failed: %s", exc)
+        lb.complete_case(pid)
+        await queue.discharge(pid)
+        moved += 1
+        logger.info("ESI-1 auto-routed to ICU | patient=%s sim_elapsed=%.1fmin",
+                    pid[:8], sim_elapsed_min)
+    return moved
+
+
 async def _build_snapshot() -> dict:
+    # ESI-1 auto-progression FIRST so the queue/bed views below already
+    # reflect the transition.
+    try:
+        await _auto_progress_esi1()
+    except Exception as exc:
+        logger.debug("esi1 progression tick failed: %s", exc)
     # Run the bed/doctor allocation tick BEFORE reading the queue so the
     # snapshot always reflects the latest admission state.
     try:
@@ -141,6 +188,8 @@ async def _build_snapshot() -> dict:
         "agents": agents,
         "bed_capacity": BED_CAPACITY,
         "disposition_counts": dispo_counts,
+        "sim_speed": _SIM_SPEED,
+        "esi1_icu_sim_min": _ESI1_ICU_SIM_MIN,
         "metrics": {
             "in_ed": len(pts),
             "waiting": waiting,
@@ -160,6 +209,19 @@ async def ed_snapshot():
     """One-shot JSON snapshot — used by the dashboard for server-side seeding
     when the browser cannot reach /ed-stream directly (e.g. private network)."""
     return await _build_snapshot()
+
+
+@router.post("/ed-sim-speed")
+async def set_sim_speed(body: dict):
+    """Client sends {speed: N} (1, 2, 4, 30 …) to set the simulated-clock
+    multiplier. Affects ESI-1 → ICU auto-progression timing only."""
+    global _SIM_SPEED
+    try:
+        s = float(body.get("speed", 1))
+        _SIM_SPEED = max(0.1, min(60.0, s))
+    except (TypeError, ValueError):
+        _SIM_SPEED = 1.0
+    return {"sim_speed": _SIM_SPEED}
 
 
 @router.get("/ed-view", response_class=HTMLResponse)

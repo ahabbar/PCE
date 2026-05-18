@@ -64,10 +64,14 @@ canvas{position:absolute;inset:0}
   </div>
   <div class="hdr-r">
     <div class="live-pill"><div class="ldot" id="lDot"></div><span id="lTxt">CONNECTING</span></div>
+    <div class="live-pill" id="simClockPill" style="font-family:'Syne Mono';font-weight:700;color:#f5c518;background:rgba(245,197,24,.10);border:1px solid #f5c518;padding:4px 10px;border-radius:99px">
+      <span id="simClock">00:00:00</span>
+    </div>
     <button class="btn on" id="bPlay" onclick="tog()">&#9646;&#9646; Pause</button>
     <button class="btn" id="s1" onclick="spd(1)">1&times;</button>
     <button class="btn on" id="s2" onclick="spd(2)">2&times;</button>
     <button class="btn" id="s4" onclick="spd(4)">4&times;</button>
+    <button class="btn" id="s30" onclick="spd(30)">30&times;</button>
   </div>
 </div>
 <div id="vis">
@@ -643,6 +647,9 @@ function loop(ts){
   if(!play){last=null;return;}
   if(!last){last=ts;return;}
   var dt=Math.min((ts-last)/1000,.05);last=ts;simT+=dt*speed;
+  // Update simulated clock (HH:MM:SS) in header
+  var cEl=document.getElementById('simClock');
+  if(cEl)cEl.textContent=fmtClock(simT);
   // Repaint dots each frame so red-flag throb animates smoothly
   drawDots();
 }
@@ -650,7 +657,26 @@ requestAnimationFrame(loop);
 
 // ─── Controls ─────────────────────────────────────────────────────────
 function tog(){play=!play;var b=document.getElementById('bPlay');b.textContent=play?'\u23F8 Pause':'\u25B6 Resume';b.className=play?'btn on':'btn';if(play)last=null;}
-function spd(s){speed=s;['s1','s2','s4'].forEach(function(id){document.getElementById(id).className='btn';});document.getElementById('s'+s).className='btn on';}
+function spd(s){
+  speed=s;
+  ['s1','s2','s4','s30'].forEach(function(id){var el=document.getElementById(id);if(el)el.className='btn';});
+  var on=document.getElementById('s'+s); if(on)on.className='btn on';
+  // Tell the server about the new speed so it can age ESI-1 patients faster
+  try{
+    var apiBase=(window.PCE_STREAM_URL||'').replace(/\/ed-stream$/,'');
+    fetch(apiBase+'/ed-sim-speed',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({speed:s}),
+    }).catch(function(){});
+  }catch(e){}
+}
+function fmtClock(secs){
+  var s=Math.max(0,Math.floor(secs));
+  var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;
+  function p(n){return (n<10?'0':'')+n;}
+  return p(h)+':'+p(m)+':'+p(ss);
+}
 function togPnl(id){var el=document.getElementById(id);if(el)el.classList.toggle('collapsed');}
 
 // ─── Diagnostics overlay (so we can SEE what's failing) ──────────────
@@ -659,7 +685,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v4 (icu+chips)',
+    'BUILD:   v5 (clock+30x+icu)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
@@ -724,6 +750,8 @@ if(window.PCE_INITIAL_SNAPSHOT){
 }
 connect();
 drawAgentPanel();
+// Sync default speed to server on first load so ESI-1 ages at the right rate.
+spd(speed);
 </script>
 </body>
 </html>
