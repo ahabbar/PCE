@@ -12,10 +12,11 @@ class DoctorRole(str, Enum):
     SHO              = "sho"
 
 
-ESI_SERVICE_TIMES = {2: 22, 3: 15, 4: 10, 5: 7}
+ESI_SERVICE_TIMES = {1: 45, 2: 22, 3: 15, 4: 10, 5: 7}
 
 # Ordered by preference for each ESI level (first = most preferred)
 ESI_PREFERRED_ROLES = {
+    1: [DoctorRole.CONSULTANT, DoctorRole.SENIOR_REGISTRAR, DoctorRole.REGISTRAR, DoctorRole.SHO],
     2: [DoctorRole.CONSULTANT, DoctorRole.SENIOR_REGISTRAR, DoctorRole.REGISTRAR, DoctorRole.SHO],
     3: [DoctorRole.REGISTRAR, DoctorRole.SHO, DoctorRole.SENIOR_REGISTRAR, DoctorRole.CONSULTANT],
     4: [DoctorRole.SHO, DoctorRole.REGISTRAR, DoctorRole.SENIOR_REGISTRAR, DoctorRole.CONSULTANT],
@@ -75,11 +76,11 @@ class DoctorLoadBalancer:
         self._doctors = doctors
 
     def assign_patient(self, patient_id: str, esi_level: int) -> AssignmentResult:
-        esi_level = max(2, min(5, esi_level))
+        esi_level = max(1, min(5, esi_level))
         preferred_roles = ESI_PREFERRED_ROLES.get(esi_level, ESI_PREFERRED_ROLES[3])
         service_time = ESI_SERVICE_TIMES.get(esi_level, 15)
 
-        # Try each role in preference order (escalation built-in)
+        # 1) Try each role in preference order among AVAILABLE doctors first
         seen_roles: list[DoctorRole] = []
         for role in preferred_roles:
             if role in seen_roles:
@@ -87,7 +88,6 @@ class DoctorLoadBalancer:
             seen_roles.append(role)
             candidates = [d for d in self._doctors if d.role == role and d.is_available]
             if candidates:
-                # Pick least loaded by time remaining
                 chosen = min(candidates, key=lambda d: d.total_remaining_min)
                 escalated = role != preferred_roles[0]
                 reason = (
@@ -96,13 +96,7 @@ class DoctorLoadBalancer:
                     else f"Assigned to {chosen.role.value} (preferred for ESI-{esi_level})"
                 )
                 load_balanced = len(candidates) > 1
-                case = ActiveCase(
-                    patient_id=patient_id,
-                    esi_level=esi_level,
-                    started_at=time.time(),
-                    estimated_total_min=service_time,
-                )
-                chosen.active_cases.append(case)
+                self._add_case(chosen, patient_id, esi_level, service_time)
                 return AssignmentResult(
                     patient_id=patient_id,
                     assigned_doctor=chosen,
@@ -111,15 +105,43 @@ class DoctorLoadBalancer:
                     load_balanced=load_balanced,
                 )
 
-        # All doctors full
-        min_wait = min((d.total_remaining_min for d in self._doctors), default=0)
+        # 2) No doctor available in any preferred role — force-assign anyway
+        #    (overflow). Walk preferred roles again, this time ignoring the
+        #    is_available check, so role preference still wins over raw load.
+        chosen = None
+        chosen_role = None
+        for role in preferred_roles:
+            candidates = [d for d in self._doctors if d.role == role]
+            if not candidates:
+                continue
+            chosen = min(candidates, key=lambda d: d.total_remaining_min)
+            chosen_role = role
+            break
+        if chosen is None:
+            chosen = min(self._doctors, key=lambda d: d.total_remaining_min)
+            chosen_role = chosen.role
+        self._add_case(chosen, patient_id, esi_level, service_time)
+        reason = (
+            f"ESI-1 force-assigned to {chosen_role.value} (overflow — all doctors at capacity)"
+            if esi_level == 1
+            else f"Overflow assignment to {chosen_role.value} (all preferred roles full)"
+        )
         return AssignmentResult(
             patient_id=patient_id,
-            assigned_doctor=None,
-            reason="All doctors at capacity",
-            estimated_wait_min=min_wait,
+            assigned_doctor=chosen,
+            reason=reason,
+            estimated_wait_min=max(0.0, chosen.total_remaining_min - service_time),
             load_balanced=False,
         )
+
+    def _add_case(self, doctor: "Doctor", patient_id: str, esi_level: int, service_time: int) -> None:
+        case = ActiveCase(
+            patient_id=patient_id,
+            esi_level=esi_level,
+            started_at=time.time(),
+            estimated_total_min=service_time,
+        )
+        doctor.active_cases.append(case)
 
     def complete_case(self, patient_id: str) -> Optional[Doctor]:
         for doctor in self._doctors:

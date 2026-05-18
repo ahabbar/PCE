@@ -9,7 +9,7 @@ _patient_counter = itertools.count(1)
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from src.core.patient import IntakeForm, OrderItem, TriageScoreResult, RedFlagResult
+from src.core.patient import IntakeForm, OrderItem, TriageScoreResult, RedFlagResult, PatientRecord
 from src.core.esi_algorithm import ESIResult
 from src.orchestrator.engine import process_patient, TriageResult
 from src.orchestrator.queue import get_queue
@@ -142,8 +142,26 @@ async def triage_patient(intake: IntakeForm):
         logger.error("Triage failed for patient %s: %s", intake.patient_id, exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
-    # Add to live queue (skip ESI-1 — they go straight to Resus Bay)
-    if result.esi_result.esi_level > 1:
+    # Add to live queue. ESI-1 still gets added so it renders in the Resus Bay,
+    # but it bypasses the PCE workup queue position — instead it is force-assigned
+    # to a doctor immediately (overflow-tolerant) and stored with status='assigned'.
+    if result.esi_result.esi_level == 1:
+        from src.agents.load_balancer import get_load_balancer
+        lb = get_load_balancer()
+        assignment = lb.assign_patient(result.patient_id, esi_level=1)
+        doctor_name = assignment.assigned_doctor.name if assignment.assigned_doctor else None
+        pr = PatientRecord(
+            intake=result.intake,
+            esi_result=result.esi_result,
+            triage_score=result.triage_score,
+            red_flag=result.red_flag,
+            workup=result.workup,
+            status="assigned",
+            assigned_doctor=doctor_name,
+            result_count=0,
+        )
+        await get_queue().add_patient_record(pr)
+    else:
         await get_queue().add_patient(result)
 
     logger.info(

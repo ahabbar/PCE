@@ -165,7 +165,7 @@ var ZONES={
   discharge: {rx:.69,ry:.16,rw:.09,rh:.12,lbl:'Discharge\nHome',col:C.green},
   admit:     {rx:.69,ry:.30,rw:.09,rh:.12,lbl:'Ward\nAdmit',col:C.blue},
   transfer:  {rx:.69,ry:.44,rw:.09,rh:.12,lbl:'Transfer\nOut',col:C.amber},
-  nurse_proc:{rx:.01,ry:.55,rw:.10,rh:.13,lbl:'Nurse\nProcedural',col:C.teal},
+  nurse_proc:{rx:.01,ry:.51,rw:.11,rh:.17,lbl:'Nurse\nProcedural\nRoom',col:C.purple},
   a1:{rx:.04,ry:.75,rw:.10,rh:.13,lbl:'A1\nRisk Score\nGemini Flash',col:C.orange},
   a2:{rx:.16,ry:.75,rw:.10,rh:.13,lbl:'A2\nRed Flag\nT=0.0',col:C.red},
   a3:{rx:.28,ry:.75,rw:.10,rh:.13,lbl:'A3\nWorkup\nWhitelist',col:C.teal},
@@ -379,6 +379,7 @@ function drawDots(){
     Dot.fillText(list.length,px+pw-6,py+4);
   });
   drawDoctors(byZone.treatment||[]);
+  drawResusDoctor(byZone.resus||[]);
 }
 
 function loadColor(pct){
@@ -392,21 +393,23 @@ function drawDoctors(treatmentPatients){
   if(!W)return;
   var z=ZONES.treatment;if(!z)return;
   var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
-  var headerH=20,pad=6;
+  var headerH=18,pad=6;
   // Build 5 bay slots regardless of curDoctors length (placeholders if missing)
   var docs=(curDoctors||[]).slice(0,5);
   while(docs.length<5)docs.push({id:'D'+(docs.length+1),name:'Bay '+(docs.length+1),role:'',active:0,max:0,load_pct:0,patients:[]});
-  // Patient lookup: who is assigned to which doctor
+  // Patient lookup: who is assigned to which doctor (exclude ESI-1, those render in Resus)
   var byDoc={};
   (treatmentPatients||[]).forEach(function(p){
+    if(parseInt(p.esi,10)===1)return;
     var key=p.doctor||'__unassigned__';
     (byDoc[key]=byDoc[key]||[]).push(p);
   });
-  // Layout: 5 bays in 1 row across treatment
+  // Layout: 5 bays in 1 row across treatment. Compact height so bays don't
+  // fill the whole vertical (leaves space for dot overflow + breathing room).
   var bayGap=6;
   var bayW=(pw-pad*2-bayGap*4)/5;
   var bayY=py+headerH+2;
-  var bayH=ph-headerH-pad-2;
+  var bayH=Math.min(135,ph-headerH-pad-2);
   docs.forEach(function(d,i){
     var bx=px+pad+i*(bayW+bayGap);
     var col=loadColor(d.load_pct);
@@ -446,6 +449,42 @@ function drawDoctors(treatmentPatients){
       drawPatientDot(Dot,p,px+pw-12-i*16,py+ph-9,5);
     });
   }
+}
+
+// Render assigned-doctor pill(s) inside the Resus Bay for ESI-1 patients.
+function drawResusDoctor(resusPatients){
+  if(!resusPatients||!resusPatients.length||!curDoctors||!curDoctors.length)return;
+  var z=ZONES.resus;if(!z)return;
+  var px=x(z.rx),py=y(z.ry),pw=x(z.rw),ph=y(z.rh);
+  // Unique assigned doctors for ESI-1 patients in resus
+  var docNames=[];
+  resusPatients.forEach(function(p){
+    if(!p.doctor)return;
+    if(docNames.indexOf(p.doctor)<0)docNames.push(p.doctor);
+  });
+  if(!docNames.length)return;
+  // Build pills along the right edge of resus
+  var pillH=18,pillW=Math.min(120,pw*.32),gap=4;
+  var startY=py+4;
+  docNames.forEach(function(name,i){
+    var doc=null;
+    for(var k=0;k<curDoctors.length;k++){
+      if(curDoctors[k].name===name||curDoctors[k].id===name){doc=curDoctors[k];break;}
+    }
+    if(!doc)return;
+    var col=loadColor(doc.load_pct);
+    var rgb=h2r(col);
+    var bx=px+pw-pillW-6,by=startY+i*(pillH+gap);
+    Dot.fillStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.18)';
+    Dot.beginPath();rr(Dot,bx,by,pillW,pillH,4);Dot.fill();
+    Dot.strokeStyle=col;Dot.lineWidth=.9;Dot.globalAlpha=.85;
+    Dot.beginPath();rr(Dot,bx,by,pillW,pillH,4);Dot.stroke();Dot.globalAlpha=1;
+    var nm=(doc.name||doc.id||'').replace('Dr. ','');
+    Dot.fillStyle=col;Dot.font='800 8px Syne';Dot.textAlign='left';Dot.textBaseline='middle';
+    Dot.fillText(nm,bx+5,by+pillH/2);
+    Dot.fillStyle=col;Dot.font='700 7px Syne Mono';Dot.textAlign='right';
+    Dot.fillText(doc.active+'/'+doc.max,bx+pillW-5,by+pillH/2);
+  });
 }
 
 function colorForPatient(p){
