@@ -259,7 +259,28 @@ async def add_to_queue_direct(req: DirectQueueRequest):
         threshold_used=req.threshold_used,
         parallel_confirmed=True,
     )
-    position = await get_queue().add_patient(result)
+
+    # ESI-1 → force-assign to a doctor immediately so the patient renders
+    # in the Resus Bay with a connector line to the assigned doctor's bay.
+    doctor_name = None
+    if req.esi_level == 1:
+        lb = get_load_balancer()
+        assignment = lb.assign_patient(req.intake.patient_id, esi_level=1)
+        doctor_name = assignment.assigned_doctor.name if assignment.assigned_doctor else None
+        pr = PatientRecord(
+            intake=req.intake,
+            esi_result=esi_result,
+            triage_score=triage_score,
+            red_flag=red_flag,
+            workup=None,
+            status="assigned",
+            assigned_doctor=doctor_name,
+            result_count=0,
+        )
+        await get_queue().add_patient_record(pr)
+        position = await get_queue().queue_depth()
+    else:
+        position = await get_queue().add_patient(result)
 
     # Persist to DB so exit-plan / discharge lookups work later
     try:
@@ -275,12 +296,13 @@ async def add_to_queue_direct(req: DirectQueueRequest):
             "is_red": req.is_red,
             "pce_scope": req.pce_scope,
             "threshold_used": req.threshold_used,
-            "status": "waiting",
+            "status": "assigned" if req.esi_level == 1 else "waiting",
+            "assigned_doctor": doctor_name,
         })
     except Exception as _e:
         logger.warning("queue/add: could not persist patient to DB: %s", _e)
 
-    return {"patient_id": req.intake.patient_id, "position": position}
+    return {"patient_id": req.intake.patient_id, "position": position, "assigned_doctor": doctor_name}
 
 
 @app.get("/queue", response_model=QueueResponse)
