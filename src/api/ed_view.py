@@ -11,6 +11,7 @@ import aiosqlite
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+from src.agents.load_balancer import get_load_balancer
 from src.database.db import get_recent_patients
 from src.orchestrator.queue import get_queue
 
@@ -106,8 +107,27 @@ async def _build_snapshot() -> dict:
         round(sum(wait_minutes) / len(wait_minutes), 1) if wait_minutes else 0.0
     )
 
+    lb = get_load_balancer()
+    doctors_out: list[dict] = []
+    try:
+        for d in lb._doctors:  # type: ignore[attr-defined]
+            doctors_out.append(
+                {
+                    "id": d.doctor_id,
+                    "name": d.name,
+                    "role": d.role.value,
+                    "active": len(d.active_cases),
+                    "max": d.max_cases,
+                    "load_pct": round(d.load_pct, 1),
+                    "patients": [c.patient_id for c in d.active_cases],
+                }
+            )
+    except Exception as exc:
+        logger.debug("doctor report failed: %s", exc)
+
     return {
         "patients": pts,
+        "doctors": doctors_out,
         "agents": agents,
         "metrics": {
             "in_ed": len(pts),
