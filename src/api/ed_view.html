@@ -133,6 +133,10 @@ var curDispoCounts={discharge:0,admit:0,icu:0,transfer:0};
 var agentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
 var prevAgentCounts={A1:0,A2:0,A3:0,A4:0,A5:0,A6:0,A7:0};
 var snapTs=0;
+// Wall-clock time (seconds) at which the latest snapshot was received.
+// Used to smoothly extrapolate per-patient wait time + ICU countdown
+// between snapshot arrivals so timers visibly tick every frame.
+var snapRecvAt=Date.now()/1000;
 
 function resize(){
   DPR=window.devicePixelRatio||1;
@@ -299,6 +303,7 @@ function applySnapshot(snap){
 
   prevPatients=curPatients;
   snapTs=snap.ts||Date.now()/1000;
+  snapRecvAt=Date.now()/1000;
   drawAgentPanel();
   drawDots();
 }
@@ -341,6 +346,11 @@ function zoneFor(p){
 }
 function fmtWait(min){
   if(min==null||isNaN(min))return '';
+  // For waits under 1 minute show seconds so the timer visibly ticks.
+  if(min<1){
+    var s=Math.max(0,Math.floor(min*60));
+    return s+'s';
+  }
   var m=Math.max(0,Math.floor(min));
   if(m<60)return m+'m';
   var h=Math.floor(m/60),rem=m%60;
@@ -357,8 +367,15 @@ function drawPatientDot(ctx,p,dx,dy,r){
     ctx.strokeStyle='#fff';ctx.lineWidth=1.2;ctx.globalAlpha=.45+.55*Math.abs(Math.sin(simT*4));
     ctx.beginPath();ctx.arc(dx,dy,r+3,0,6.28);ctx.stroke();ctx.globalAlpha=1;
   }
-  // Wait time ABOVE dot — stay duration since triage
-  var wt=fmtWait(p.wait_min);
+  // Wall seconds since the snapshot was received — used to extrapolate
+  // wait time + ICU countdown so they tick smoothly every frame instead
+  // of jumping once every snapshot (~1.5s).
+  var dtSinceSnap=Math.max(0,(Date.now()/1000)-snapRecvAt);
+  // Wait time ABOVE dot — stay duration since triage (live ticking).
+  // wait_min from server is wall-clock minutes; scale by sim `speed` so the
+  // 2X / 4X / 30X buttons visibly fast-forward the wait timer too.
+  var liveWaitMin=((p.wait_min||0)+dtSinceSnap/60)*speed;
+  var wt=fmtWait(liveWaitMin);
   if(wt){
     ctx.fillStyle=C.text;ctx.font='800 8px Syne Mono';ctx.textAlign='center';ctx.textBaseline='bottom';
     ctx.globalAlpha=.9;
@@ -372,10 +389,18 @@ function drawPatientDot(ctx,p,dx,dy,r){
   // Patient ID BELOW dot
   ctx.fillStyle=C.text;ctx.font='600 7px Syne Mono';ctx.textBaseline='top';ctx.globalAlpha=.85;
   ctx.fillText(shortPid(p.id),dx,dy+r+2);ctx.globalAlpha=1;
-  // ESI-1 ICU countdown: shows "ICU in Xm" so user can see the auto-transition timer
+  // ESI-1 ICU countdown — ticks down smoothly at sim speed.
+  // sim_to_icu_min is in *simulated* minutes; subtract wall-seconds × speed.
   if(parseInt(p.esi,10)===1 && p.sim_to_icu_min!=null){
-    var rem=Math.max(0,p.sim_to_icu_min);
-    var label='ICU in '+(rem<1?Math.ceil(rem*60)+'s':Math.ceil(rem)+'m');
+    var liveIcuMin=p.sim_to_icu_min-(dtSinceSnap*speed)/60;
+    var label;
+    if(liveIcuMin<=0){
+      label='MOVING TO ICU\u2026';
+    }else if(liveIcuMin<1){
+      label='ICU in '+Math.max(0,Math.ceil(liveIcuMin*60))+'s';
+    }else{
+      label='ICU in '+Math.ceil(liveIcuMin)+'m';
+    }
     ctx.fillStyle=C.red;ctx.font='800 7px Syne Mono';
     ctx.textBaseline='top';ctx.globalAlpha=.9;
     ctx.fillText(label,dx,dy+r+12);
@@ -710,7 +735,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v7 (server clock)',
+    'BUILD:   v9 (speed-scaled)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
