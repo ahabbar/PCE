@@ -119,6 +119,9 @@ canvas{position:absolute;inset:0}
 var cBg=document.getElementById('cBg'),cPt=document.getElementById('cPt'),cDot=document.getElementById('cDot'),vis=document.getElementById('vis');
 var Bg=cBg.getContext('2d'),Pt=cPt.getContext('2d'),Dot=cDot.getContext('2d');
 var W,H,DPR,play=true,speed=2,simT=0,last=null;
+// Server-provided sim clock (seconds). When present this overrides the local
+// simT accumulator so a page refresh keeps the wall-style HH:MM:SS pill.
+var simTServer=null,simTServerAt=0;
 var C={teal:'#00e5c8',red:'#ff3a3a',orange:'#ff8c00',yellow:'#f5c518',blue:'#4da6ff',green:'#00e07a',purple:'#c084fc',amber:'#fb923c',muted:'#3a5570',text:'#c4dce8',border:'#0f2235'};
 
 // State synced from /ed-stream
@@ -272,6 +275,11 @@ function applySnapshot(snap){
   curDoctors=snap.doctors||[];
   curBedCapacity=snap.bed_capacity||10;
   curDispoCounts=snap.disposition_counts||{discharge:0,admit:0,icu:0,transfer:0};
+  if(typeof snap.sim_time_sec==='number'){
+    simTServer=snap.sim_time_sec;
+    simTServerAt=Date.now()/1000;
+  }
+  if(typeof snap.sim_speed==='number'){speed=snap.sim_speed;}
 
   // Agent activity — keep counts in sync for the side panel only (no particles)
   var newCounts=snap.agents||{};
@@ -656,9 +664,17 @@ function loop(ts){
   if(!play){last=null;return;}
   if(!last){last=ts;return;}
   var dt=Math.min((ts-last)/1000,.05);last=ts;simT+=dt*speed;
-  // Update simulated clock (HH:MM:SS) in header
+  // Update simulated clock (HH:MM:SS) in header.
+  // Prefer server-provided sim time so refreshing the page does NOT reset
+  // back to 00:00:00. Smoothly extrapolate at `speed`× between snapshots.
   var cEl=document.getElementById('simClock');
-  if(cEl)cEl.textContent=fmtClock(simT);
+  if(cEl){
+    var shown=simT;
+    if(simTServer!=null){
+      shown=simTServer+(Date.now()/1000-simTServerAt)*speed;
+    }
+    cEl.textContent=fmtClock(shown);
+  }
   // Repaint dots each frame so red-flag throb animates smoothly
   drawDots();
 }
@@ -694,7 +710,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v6 (icu countdown)',
+    'BUILD:   v7 (server clock)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,

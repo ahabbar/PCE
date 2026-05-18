@@ -37,6 +37,10 @@ _AGENT_WINDOW_SEC = 5
 _SIM_SPEED: float = 1.0
 # ESI-1 patients are auto-moved to ICU after this many simulated minutes.
 _ESI1_ICU_SIM_MIN: float = 30.0
+# Server-side simulated-clock accumulator so the HH:MM:SS pill survives
+# page refreshes (client used to reset to 00:00:00 on every reload).
+_SIM_TIME_SEC: float = 0.0
+_SIM_LAST_TICK: float | None = None
 
 
 def _patient_to_dict(p) -> dict:
@@ -114,16 +118,28 @@ async def _auto_progress_esi1() -> int:
         if not (score and int(score.esi_level) == 1):
             continue
         sim_elapsed_min = ((now - p.intake.arrival_time) / 60.0) * _SIM_SPEED
-        if sim_elapsed_min < _ESI1_ICU_SIM_MIN:
-            continue
         pid = p.intake.patient_id
+        if sim_elapsed_min < _ESI1_ICU_SIM_MIN:
+            logger.debug(
+                "esi1 not yet ready | patient=%s sim_elapsed=%.1fmin "
+                "(need %.1fmin, speed=%.1fx)",
+                pid[:8], sim_elapsed_min, _ESI1_ICU_SIM_MIN, _SIM_SPEED,
+            )
+            continue
         try:
             await update_patient_status(pid, "seen")
             await set_patient_disposition(pid, "icu")
         except Exception as exc:
-            logger.warning("esi1 db update failed: %s", exc)
-        freed = lb.complete_case(pid)
-        await queue.discharge(pid)
+            logger.warning("esi1 db update failed: %s", exc, exc_info=True)
+        try:
+            freed = lb.complete_case(pid)
+        except Exception as exc:
+            logger.warning("esi1 lb.complete_case failed: %s", exc, exc_info=True)
+            freed = None
+        try:
+            await queue.discharge(pid)
+        except Exception as exc:
+            logger.warning("esi1 queue.discharge failed: %s", exc, exc_info=True)
         moved += 1
         logger.info(
             "ESI-1 -> ICU | patient=%s sim_elapsed=%.1fmin (speed=%.1fx)",
@@ -135,12 +151,22 @@ async def _auto_progress_esi1() -> int:
 
 
 async def _build_snapshot() -> dict:
+    global _SIM_TIME_SEC, _SIM_LAST_TICK
+    now_wall = time.time()
+    if _SIM_LAST_TICK is None:
+        _SIM_LAST_TICK = now_wall
+    dt_wall = max(0.0, now_wall - _SIM_LAST_TICK)
+    _SIM_TIME_SEC += dt_wall * _SIM_SPEED
+    _SIM_LAST_TICK = now_wall
+
     # ESI-1 auto-progression FIRST so the queue/bed views below already
     # reflect the transition.
     try:
-        await _auto_progress_esi1()
+        moved = await _auto_progress_esi1()
+        if moved:
+            logger.info("esi1 progression moved %d patient(s) to ICU", moved)
     except Exception as exc:
-        logger.debug("esi1 progression tick failed: %s", exc)
+        logger.warning("esi1 progression tick failed: %s", exc, exc_info=True)
     # Run the bed/doctor allocation tick BEFORE reading the queue so the
     # snapshot always reflects the latest admission state.
     try:
@@ -205,6 +231,7 @@ async def _build_snapshot() -> dict:
         "bed_capacity": BED_CAPACITY,
         "disposition_counts": dispo_counts,
         "sim_speed": _SIM_SPEED,
+        "sim_time_sec": _SIM_TIME_SEC,
         "esi1_icu_sim_min": _ESI1_ICU_SIM_MIN,
         "metrics": {
             "in_ed": len(pts),
