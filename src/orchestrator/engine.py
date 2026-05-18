@@ -10,8 +10,10 @@ from src.agents.llm import get_llm_client
 from src.agents.triage_score import run_triage_score, get_dynamic_threshold
 from src.agents.red_flag import run_red_flag_guardian
 from src.agents.workup import run_preemptive_workup
+from src.agents.batch import get_batch_coordinator
+from src.agents.disposition import run_disposition_forecast, DispositionInput
 from src.core.whitelist import ProtocolWhitelist
-from src.database.db import save_patient, save_investigation_orders, log_agent_action
+from src.database.db import save_patient, save_investigation_orders, log_agent_action, set_patient_disposition
 
 logger = logging.getLogger("pce.orchestrator")
 
@@ -182,6 +184,32 @@ async def process_patient(
         whitelist = ProtocolWhitelist()
         workup = await run_preemptive_workup(intake, triage_score, llm, whitelist)
 
+    # Step 6b: Agent 4 — feed orders into batch coordinator so /queue sees real
+    # batch groupings instead of an empty dict.
+    if workup and workup.orders:
+        try:
+            get_batch_coordinator().add_orders(intake.patient_id, workup, esi_result.esi_level)
+        except Exception as exc:
+            logger.warning("Agent 4 (batch) failed: %s", exc, exc_info=True)
+
+    # Step 6c: Agent 6 — disposition forecast. Runs after workup so it can
+    # see what's been ordered. Persisted to disposition_prediction column;
+    # later overwritten by set_patient_disposition() at finalization.
+    disposition_pred = None
+    if workup:
+        try:
+            disp_inp = DispositionInput(
+                intake=intake,
+                triage_score=triage_score,
+                workup=workup,
+                results_so_far=[],
+                is_red=is_red,
+            )
+            disposition_pred = await run_disposition_forecast(disp_inp, llm)
+            await set_patient_disposition(intake.patient_id, disposition_pred.predicted_destination)
+        except Exception as exc:
+            logger.warning("Agent 6 (disposition) failed: %s", exc, exc_info=True)
+
     total_latency_ms = (time.monotonic() - t0) * 1000
 
     # Step 7: Persist to DB (best-effort, don't let DB failure crash triage)
@@ -211,6 +239,30 @@ async def process_patient(
                     intake.patient_id, 3, "workup",
                     f"protocol={workup.protocol_key}",
                     f"orders={len(workup.orders)}",
+                    total_latency_ms, "gemini",
+                )
+            )
+            tasks.append(
+                log_agent_action(
+                    intake.patient_id, 4, "batch_add",
+                    f"orders={len(workup.orders)} esi={esi_result.esi_level}",
+                    f"pending={get_batch_coordinator().pending_count()}",
+                    0, "rules",
+                )
+            )
+        if disposition_pred:
+            tasks.append(
+                log_agent_action(
+                    intake.patient_id, 6, "disposition_forecast",
+                    f"is_red={is_red}",
+                    (
+                        f"dest={disposition_pred.predicted_destination} "
+                        f"d={disposition_pred.discharge_pct:.0f} "
+                        f"a={disposition_pred.admit_pct:.0f} "
+                        f"i={disposition_pred.icu_pct:.0f} "
+                        f"t={disposition_pred.transfer_pct:.0f} "
+                        f"bed_reserved={disposition_pred.bed_reservation_sent}"
+                    ),
                     total_latency_ms, "gemini",
                 )
             )

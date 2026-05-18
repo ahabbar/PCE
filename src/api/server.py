@@ -486,6 +486,9 @@ async def health():
         "db": "ok",
         "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
         "agents": 7,
+        "agents_active_intake": ["1_triage", "2_red_flag", "3_workup", "4_batch", "6_disposition"],
+        "agents_conditional": ["5_load_balancer"],
+        "agents_on_exit": ["7_exit_coord"],
         "queue_loaded_from_db": getattr(app.state, "queue_loaded", 0),
     }
 
