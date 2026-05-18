@@ -41,15 +41,24 @@ _ESI1_ICU_SIM_MIN: float = 30.0
 
 def _patient_to_dict(p) -> dict:
     score = p.triage_score
+    esi = int(score.esi_level) if score else 3
+    wait_real_min = (time.time() - p.intake.arrival_time) / 60.0
+    # For ESI-1, expose remaining sim-minutes until the auto-ICU transition
+    # so the canvas can render a visible countdown.
+    sim_to_icu_min = None
+    if esi == 1:
+        sim_elapsed_min = wait_real_min * _SIM_SPEED
+        sim_to_icu_min = max(0.0, _ESI1_ICU_SIM_MIN - sim_elapsed_min)
     return {
         "id": p.intake.patient_id,
-        "esi": int(score.esi_level) if score else 3,
+        "esi": esi,
         "status": p.status,
         "is_red": bool(score.is_red) if score else False,
         "doctor": p.assigned_doctor,
         "result_count": int(p.result_count or 0),
-        "wait_min": round((time.time() - p.intake.arrival_time) / 60.0, 1),
+        "wait_min": round(wait_real_min, 1),
         "risk_score": float(score.risk_score) if score else 50.0,
+        "sim_to_icu_min": sim_to_icu_min,
     }
 
 
@@ -91,7 +100,10 @@ async def _lab_utilization_pct() -> int:
 async def _auto_progress_esi1() -> int:
     """Move any ESI-1 patient who has been in the ED for ≥ 30 simulated
     minutes to ICU: persist disposition='icu', free the doctor, remove from
-    queue. Returns the number of patients transitioned."""
+    queue, and cascade the freed doctor onto the next waiting patient."""
+    import asyncio as _aio
+    from src.orchestrator.engine import try_cascade_assignment
+
     queue = get_queue()
     lb = get_load_balancer()
     sorted_q = await queue.get_sorted_queue()
@@ -99,7 +111,7 @@ async def _auto_progress_esi1() -> int:
     moved = 0
     for p in sorted_q:
         score = p.triage_score
-        if not (score and score.esi_level == 1):
+        if not (score and int(score.esi_level) == 1):
             continue
         sim_elapsed_min = ((now - p.intake.arrival_time) / 60.0) * _SIM_SPEED
         if sim_elapsed_min < _ESI1_ICU_SIM_MIN:
@@ -109,12 +121,16 @@ async def _auto_progress_esi1() -> int:
             await update_patient_status(pid, "seen")
             await set_patient_disposition(pid, "icu")
         except Exception as exc:
-            logger.debug("esi1 db update failed: %s", exc)
-        lb.complete_case(pid)
+            logger.warning("esi1 db update failed: %s", exc)
+        freed = lb.complete_case(pid)
         await queue.discharge(pid)
         moved += 1
-        logger.info("ESI-1 auto-routed to ICU | patient=%s sim_elapsed=%.1fmin",
-                    pid[:8], sim_elapsed_min)
+        logger.info(
+            "ESI-1 -> ICU | patient=%s sim_elapsed=%.1fmin (speed=%.1fx)",
+            pid[:8], sim_elapsed_min, _SIM_SPEED,
+        )
+        if freed is not None:
+            _aio.create_task(try_cascade_assignment(freed_doctor_name=freed.name))
     return moved
 
 

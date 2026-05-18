@@ -364,6 +364,15 @@ function drawPatientDot(ctx,p,dx,dy,r){
   // Patient ID BELOW dot
   ctx.fillStyle=C.text;ctx.font='600 7px Syne Mono';ctx.textBaseline='top';ctx.globalAlpha=.85;
   ctx.fillText(shortPid(p.id),dx,dy+r+2);ctx.globalAlpha=1;
+  // ESI-1 ICU countdown: shows "ICU in Xm" so user can see the auto-transition timer
+  if(parseInt(p.esi,10)===1 && p.sim_to_icu_min!=null){
+    var rem=Math.max(0,p.sim_to_icu_min);
+    var label='ICU in '+(rem<1?Math.ceil(rem*60)+'s':Math.ceil(rem)+'m');
+    ctx.fillStyle=C.red;ctx.font='800 7px Syne Mono';
+    ctx.textBaseline='top';ctx.globalAlpha=.9;
+    ctx.fillText(label,dx,dy+r+12);
+    ctx.globalAlpha=1;
+  }
 }
 
 // Where a given patient dot lands on the canvas. Returns null if not laid out.
@@ -685,7 +694,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v5 (clock+30x+icu)',
+    'BUILD:   v6 (icu countdown)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
