@@ -371,10 +371,13 @@ function drawPatientDot(ctx,p,dx,dy,r){
   // wait time + ICU countdown so they tick smoothly every frame instead
   // of jumping once every snapshot (~1.5s).
   var dtSinceSnap=Math.max(0,(Date.now()/1000)-snapRecvAt);
-  // Wait time ABOVE dot — stay duration since triage (live ticking).
-  // wait_min from server is wall-clock minutes; scale by sim `speed` so the
-  // 2X / 4X / 30X buttons visibly fast-forward the wait timer too.
-  var liveWaitMin=((p.wait_min||0)+dtSinceSnap/60)*speed;
+  // Wait time ABOVE dot — pure sim-seconds from the server (already
+  // accelerated). We just extrapolate forward by `dtSinceSnap * speed`
+  // so the timer ticks smoothly between snapshots. NO inflation on
+  // speed change — the server's wait_sim_sec keeps accumulating at the
+  // new rate naturally, so switching to 30X just makes it tick faster.
+  var liveWaitSec=(p.wait_sim_sec!=null?p.wait_sim_sec:((p.wait_min||0)*60))+dtSinceSnap*speed;
+  var liveWaitMin=liveWaitSec/60;
   var wt=fmtWait(liveWaitMin);
   // Hide wait + PID labels for tiny dots (when packDotsInRect shrank
   // r below 6) so dense waiting rooms still render cleanly.
@@ -760,7 +763,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v10 (big waiting)',
+    'BUILD:   v11 (real sim time)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,

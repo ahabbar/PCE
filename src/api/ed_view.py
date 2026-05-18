@@ -41,26 +41,37 @@ _ESI1_ICU_SIM_MIN: float = 30.0
 # page refreshes (client used to reset to 00:00:00 on every reload).
 _SIM_TIME_SEC: float = 0.0
 _SIM_LAST_TICK: float | None = None
+# Per-patient sim-time at which they entered the queue. Lets us report a
+# wait that accelerates correctly when the user bumps sim speed (instead
+# of just inflating the displayed number once on speed change).
+# Backfilled from each patient's wall arrival_time so demo-seed patients
+# (arrival_time = now - 3600) keep their 60-minute pre-seed wait.
+_PATIENT_SIM_ARRIVAL: dict[str, float] = {}
 
 
 def _patient_to_dict(p) -> dict:
     score = p.triage_score
     esi = int(score.esi_level) if score else 3
-    wait_real_min = (time.time() - p.intake.arrival_time) / 60.0
-    # For ESI-1, expose remaining sim-minutes until the auto-ICU transition
-    # so the canvas can render a visible countdown.
+    pid = p.intake.patient_id
+    # Sim-time elapsed since this patient entered the queue. Computed from
+    # the per-patient sim_arrival registered in _build_snapshot, so wait
+    # advances at the current sim_speed (instead of being a wall value
+    # multiplied for display).
+    sim_arrival = _PATIENT_SIM_ARRIVAL.get(pid, _SIM_TIME_SEC)
+    wait_sim_sec = max(0.0, _SIM_TIME_SEC - sim_arrival)
+    wait_sim_min = wait_sim_sec / 60.0
     sim_to_icu_min = None
     if esi == 1:
-        sim_elapsed_min = wait_real_min * _SIM_SPEED
-        sim_to_icu_min = max(0.0, _ESI1_ICU_SIM_MIN - sim_elapsed_min)
+        sim_to_icu_min = max(0.0, _ESI1_ICU_SIM_MIN - wait_sim_min)
     return {
-        "id": p.intake.patient_id,
+        "id": pid,
         "esi": esi,
         "status": p.status,
         "is_red": bool(score.is_red) if score else False,
         "doctor": p.assigned_doctor,
         "result_count": int(p.result_count or 0),
-        "wait_min": round(wait_real_min, 1),
+        "wait_min": round(wait_sim_min, 1),
+        "wait_sim_sec": round(wait_sim_sec, 2),
         "risk_score": float(score.risk_score) if score else 50.0,
         "sim_to_icu_min": sim_to_icu_min,
     }
@@ -111,14 +122,14 @@ async def _auto_progress_esi1() -> int:
     queue = get_queue()
     lb = get_load_balancer()
     sorted_q = await queue.get_sorted_queue()
-    now = time.time()
     moved = 0
     for p in sorted_q:
         score = p.triage_score
         if not (score and int(score.esi_level) == 1):
             continue
-        sim_elapsed_min = ((now - p.intake.arrival_time) / 60.0) * _SIM_SPEED
         pid = p.intake.patient_id
+        sim_arrival = _PATIENT_SIM_ARRIVAL.get(pid, _SIM_TIME_SEC)
+        sim_elapsed_min = max(0.0, _SIM_TIME_SEC - sim_arrival) / 60.0
         if sim_elapsed_min < _ESI1_ICU_SIM_MIN:
             logger.debug(
                 "esi1 not yet ready | patient=%s sim_elapsed=%.1fmin "
@@ -158,6 +169,23 @@ async def _build_snapshot() -> dict:
     dt_wall = max(0.0, now_wall - _SIM_LAST_TICK)
     _SIM_TIME_SEC += dt_wall * _SIM_SPEED
     _SIM_LAST_TICK = now_wall
+
+    # Register sim-arrival for any patient we haven't seen before, and
+    # forget patients that have left the queue. Sim-arrival is backfilled
+    # from the patient's wall arrival_time so a demo-seed patient that
+    # claims to have been waiting an hour shows up as 60min wait — not 0.
+    queue_for_arrival = get_queue()
+    sorted_for_arrival = await queue_for_arrival.get_sorted_queue()
+    current_ids = set()
+    for _p in sorted_for_arrival:
+        _pid = _p.intake.patient_id
+        current_ids.add(_pid)
+        if _pid not in _PATIENT_SIM_ARRIVAL:
+            wall_age_sec = max(0.0, now_wall - _p.intake.arrival_time)
+            _PATIENT_SIM_ARRIVAL[_pid] = _SIM_TIME_SEC - wall_age_sec
+    for _pid in list(_PATIENT_SIM_ARRIVAL.keys()):
+        if _pid not in current_ids:
+            _PATIENT_SIM_ARRIVAL.pop(_pid, None)
 
     # ESI-1 auto-progression FIRST so the queue/bed views below already
     # reflect the transition.
