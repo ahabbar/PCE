@@ -746,6 +746,21 @@ function _spdLabel(s){
   return v+'\u00D7';
 }
 function spd(s){
+  // Lock in currently-extrapolated values BEFORE switching speed, so the
+  // displayed wait/ICU/sim-clock don't rewind when speed drops (e.g. 30×→1×
+  // would otherwise collapse dtSinceSnap*30 down to dtSinceSnap*1).
+  var nowS=Date.now()/1000;
+  var dt=Math.max(0,nowS-snapRecvAt);
+  if(curPatients){
+    Object.keys(curPatients).forEach(function(pid){
+      var p=curPatients[pid];
+      if(!p)return;
+      if(p.wait_sim_sec!=null){ p.wait_sim_sec += dt*speed; }
+      if(p.sim_to_icu_min!=null){ p.sim_to_icu_min -= (dt*speed)/60; }
+    });
+  }
+  if(simTServer!=null){ simTServer += dt*speed; simTServerAt = nowS; }
+  snapRecvAt=nowS;
   // Snap requested speed to the nearest ladder entry so the stepper
   // can find its index. (Old callers pass 1/2/4/30 — all in the ladder.)
   var idx=0,best=Infinity;
@@ -794,7 +809,7 @@ function drawDiag(){
   if(!W||!H)return;
   var dc=curDispoCounts||{};
   var lines=[
-    'BUILD:   v12 (\u00B1 stepper)',
+    'BUILD:   v13 (speed lock-in)',
     'HTML:    '+DIAG.html,
     'CANVAS:  '+DIAG.canvas+'  ('+Math.round(W)+'x'+Math.round(H)+')',
     'SSE:     '+DIAG.sse,
